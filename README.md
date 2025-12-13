@@ -1,8 +1,14 @@
 # Genesis System SDK
 
-> **An AI-native SDK for building complete applications**
+<div align="center">
 
-Genesis is not another framework. It's an **SDK designed for AI agents** — a standard library of pre-approved, production-ready components that agents can compose into full applications without hallucinating architecture.
+### 🎯 Give AI everything it needs to develop in one shot
+
+</div>
+
+> An AI-native SDK of **pre-approved, production-ready components** that agents compose into complete applications — without hallucinating architecture.
+
+Genesis is not another framework. It's an **SDK designed for AI agents** — a standard library of primitives that work together out of the box.
 
 ---
 
