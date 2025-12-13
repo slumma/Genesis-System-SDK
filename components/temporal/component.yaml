@@ -1,0 +1,270 @@
+# =============================================================================
+# Temporal Workflow Engine Component
+# =============================================================================
+# Durable workflow orchestration for reliable, retryable business processes
+# Validated in: UC1 Resume Optimizer experiment
+# =============================================================================
+
+name: temporal
+version: 1.23.x
+category: workflow
+validated: 2024-12-13
+
+description: |
+  Durable workflow orchestration for reliable, retryable business processes.
+  Perfect for long-running AI pipelines, multi-step operations, and saga patterns.
+  Provides automatic retries, visibility, and workflow versioning.
+
+# =============================================================================
+# PORTS & NETWORKING
+# =============================================================================
+ports:
+  grpc: 7233       # Main gRPC endpoint
+  web_ui: 8088     # Temporal Web UI (separate container)
+
+# =============================================================================
+# ENVIRONMENT VARIABLES
+# =============================================================================
+environment:
+  required:
+    - name: DB
+      description: Database type
+      values: [postgres, mysql]
+      default: postgres
+      
+    - name: POSTGRES_SEEDS
+      description: PostgreSQL host address
+      
+    - name: POSTGRES_USER
+      description: PostgreSQL username
+      
+    - name: POSTGRES_PWD
+      description: PostgreSQL password
+      sensitive: true
+      
+  optional:
+    - name: DB_PORT
+      description: Database port
+      default: "5432"
+      
+    - name: NUM_HISTORY_SHARDS
+      description: Number of history shards (affects scale)
+      default: "512"
+
+# =============================================================================
+# DOCKER
+# =============================================================================
+docker:
+  server:
+    image: temporalio/auto-setup:1.23.0
+    port: 7233
+    
+  web_ui:
+    image: temporalio/ui:2.22.0
+    port: 8088
+    
+  compose_snippet: |
+    temporal:
+      image: temporalio/auto-setup:1.23.0
+      container_name: ${APP_NAME}-temporal
+      environment:
+        - DB=postgres
+        - DB_PORT=5432
+        - POSTGRES_USER=${POSTGRES_USER}
+        - POSTGRES_PWD=${POSTGRES_PASSWORD}
+        - POSTGRES_SEEDS=postgres
+        - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development.yaml
+      volumes:
+        - ./config/temporal/dynamicconfig:/etc/temporal/config/dynamicconfig:ro
+      ports:
+        - "7233:7233"
+      depends_on:
+        postgres:
+          condition: service_healthy
+          
+    temporal-ui:
+      image: temporalio/ui:2.22.0
+      container_name: ${APP_NAME}-temporal-ui
+      environment:
+        - TEMPORAL_ADDRESS=temporal:7233
+        - TEMPORAL_CORS_ORIGINS=http://localhost:3000
+      ports:
+        - "8088:8080"
+      depends_on:
+        - temporal
+
+# =============================================================================
+# AWS DEPLOYMENT
+# =============================================================================
+aws:
+  option_1:
+    name: ECS Fargate
+    description: Run Temporal as container cluster
+    note: Requires PostgreSQL RDS
+    
+  option_2:
+    name: Temporal Cloud
+    description: Managed Temporal service
+    url: https://temporal.io/cloud
+    note: Recommended for production - no infrastructure management
+
+# =============================================================================
+# PYTHON SDK PATTERNS
+# =============================================================================
+patterns:
+  workflow_definition: |
+    # Define a workflow
+    from temporalio import workflow
+    from datetime import timedelta
+    
+    @workflow.defn
+    class ProcessingWorkflow:
+        @workflow.run
+        async def run(self, input_data: dict) -> dict:
+            # Step 1: Call activity with retry
+            result1 = await workflow.execute_activity(
+                step_one,
+                input_data,
+                start_to_close_timeout=timedelta(seconds=30),
+            )
+            
+            # Step 2: Call another activity
+            result2 = await workflow.execute_activity(
+                step_two,
+                result1,
+                start_to_close_timeout=timedelta(minutes=2),
+                retry_policy=RetryPolicy(
+                    maximum_attempts=3,
+                    backoff_coefficient=2.0,
+                ),
+            )
+            
+            return result2
+
+  activity_definition: |
+    # Define activities
+    from temporalio import activity
+    
+    @activity.defn
+    async def step_one(input_data: dict) -> dict:
+        """Activity that performs step one."""
+        # If this raises, Temporal will retry automatically
+        result = await do_something(input_data)
+        return result
+
+  worker_setup: |
+    # Run a worker
+    from temporalio.client import Client
+    from temporalio.worker import Worker
+    
+    async def run_worker():
+        client = await Client.connect("localhost:7233")
+        
+        worker = Worker(
+            client,
+            task_queue="my-queue",
+            workflows=[ProcessingWorkflow],
+            activities=[step_one, step_two],
+        )
+        
+        await worker.run()
+
+  fastapi_client: |
+    # Start workflow from FastAPI
+    from temporalio.client import Client
+    from uuid import uuid4
+    
+    @app.post("/api/process")
+    async def start_processing(request: ProcessRequest):
+        client = await Client.connect(settings.TEMPORAL_HOST)
+        
+        handle = await client.start_workflow(
+            ProcessingWorkflow.run,
+            args=[request.dict()],
+            id=f"process-{uuid4()}",
+            task_queue="my-queue",
+        )
+        
+        return {"workflow_id": handle.id}
+    
+    @app.get("/api/process/{workflow_id}")
+    async def get_status(workflow_id: str):
+        client = await Client.connect(settings.TEMPORAL_HOST)
+        handle = client.get_workflow_handle(workflow_id)
+        
+        try:
+            result = await handle.result()
+            return {"status": "completed", "result": result}
+        except Exception:
+            return {"status": "running"}
+
+# =============================================================================
+# DYNAMIC CONFIG
+# =============================================================================
+template:
+  dynamic_config: |
+    # config/temporal/dynamicconfig/development.yaml
+    frontend.keepAliveMaxConnectionAge:
+      - value: 5m
+        constraints: {}
+    system.forceSearchAttributesCacheRefreshOnRead:
+      - value: true
+        constraints: {}
+
+# =============================================================================
+# TROUBLESHOOTING
+# =============================================================================
+troubleshooting:
+  - symptom: Workflow stuck in started state
+    cause: No worker polling the task queue
+    solution: Verify worker is running and connected to correct queue
+    
+  - symptom: Activity timeout
+    cause: Activity took too long or external API slow
+    solution: Increase start_to_close_timeout or add heartbeating
+    
+  - symptom: Connection refused
+    cause: Temporal server not ready
+    solution: Wait for postgres healthcheck, then Temporal startup
+
+# =============================================================================
+# IMPLEMENTATION INSTRUCTIONS
+# =============================================================================
+implementation_instructions: |
+  ## For AI Implementation Agents
+  
+  1. **Add to docker-compose** using compose_snippet
+  2. **Create dynamic config** file from template
+  3. **Install Python SDK**: pip install temporalio
+  4. **Define workflows** - one class per workflow type
+  5. **Define activities** - stateless functions that can fail/retry
+  6. **Create worker** - runs workflows and activities
+  7. **Integrate with API** - start workflows from endpoints
+  
+  ### Quick Start:
+  ```bash
+  # Install SDK
+  pip install temporalio
+  
+  # Access Web UI to see workflows
+  open http://localhost:8088
+  
+  # Create namespace (if not auto-setup)
+  tctl --address localhost:7233 namespace register default
+  ```
+  
+  ### Key Concepts:
+  - **Workflows**: Orchestration logic, deterministic
+  - **Activities**: Steps that do actual work, can fail
+  - **Task Queues**: Workers poll specific queues
+  - **Retries**: Automatic with configurable policies
+
+# =============================================================================
+# SECURITY
+# =============================================================================
+security:
+  production_checklist:
+    - "[ ] TLS enabled between services"
+    - "[ ] Database credentials rotated"
+    - "[ ] Namespace access restricted"
+    - "[ ] Audit logging enabled"

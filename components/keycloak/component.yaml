@@ -1,0 +1,462 @@
+# =============================================================================
+# Keycloak Identity & Access Management Component
+# =============================================================================
+# Enterprise-grade OIDC identity provider with OAuth 2.0, SSO, and RBAC
+# Validated in: UC1 Resume Optimizer experiment
+# =============================================================================
+
+name: keycloak
+version: 24.0.x
+category: identity
+validated: 2024-12-13
+
+description: |
+  Enterprise-grade OIDC identity provider with OAuth 2.0, SSO, and RBAC.
+  Provides authentication for all Genesis blueprints with support for 
+  social login, MFA, and user federation.
+
+# =============================================================================
+# PORTS & NETWORKING
+# =============================================================================
+ports:
+  default: 8080
+  admin_console: /admin
+  health: /health/ready
+
+# =============================================================================
+# ENVIRONMENT VARIABLES
+# =============================================================================
+environment:
+  required:
+    - name: KEYCLOAK_ADMIN
+      description: Admin username for Keycloak console
+      default: admin
+      
+    - name: KEYCLOAK_ADMIN_PASSWORD
+      description: Admin password (change immediately!)
+      sensitive: true
+      
+    - name: KC_DB_URL
+      description: JDBC database connection URL
+      format: "jdbc:postgresql://host:5432/keycloak"
+      
+    - name: KC_DB_USERNAME
+      description: Database username
+      
+    - name: KC_DB_PASSWORD
+      description: Database password
+      sensitive: true
+      
+  optional:
+    - name: KC_HOSTNAME
+      description: External hostname
+      default: localhost
+      
+    - name: KC_PROXY
+      description: Proxy mode (none, edge, reencrypt, passthrough)
+      default: edge
+      
+    - name: KC_HTTP_ENABLED
+      description: Enable HTTP (required for dev)
+      default: "true"
+      
+    - name: KC_HEALTH_ENABLED
+      description: Enable health endpoints
+      default: "true"
+
+# =============================================================================
+# DOCKER
+# =============================================================================
+docker:
+  image: quay.io/keycloak/keycloak:24.0
+  port: 8080
+  
+  compose_snippet: |
+    keycloak:
+      image: quay.io/keycloak/keycloak:24.0
+      container_name: ${APP_NAME}-keycloak
+      command: start-dev --import-realm
+      environment:
+        KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
+        KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+        KC_DB: postgres
+        KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+        KC_DB_USERNAME: ${POSTGRES_USER}
+        KC_DB_PASSWORD: ${POSTGRES_PASSWORD}
+        KC_HEALTH_ENABLED: "true"
+        KC_HTTP_ENABLED: "true"
+        KC_HOSTNAME_STRICT: "false"
+        KC_PROXY: edge
+      volumes:
+        - ./config/keycloak/realm.json:/opt/keycloak/data/import/realm.json:ro
+      ports:
+        - "8080:8080"
+      depends_on:
+        postgres:
+          condition: service_healthy
+      healthcheck:
+        test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080"]
+        interval: 30s
+        timeout: 10s
+        retries: 10
+        start_period: 60s
+
+# =============================================================================
+# OIDC ENDPOINTS
+# =============================================================================
+endpoints:
+  well_known: /realms/{realm}/.well-known/openid-configuration
+  authorization: /realms/{realm}/protocol/openid-connect/auth
+  token: /realms/{realm}/protocol/openid-connect/token
+  userinfo: /realms/{realm}/protocol/openid-connect/userinfo
+  jwks: /realms/{realm}/protocol/openid-connect/certs
+  logout: /realms/{realm}/protocol/openid-connect/logout
+
+# =============================================================================
+# AWS DEPLOYMENT
+# =============================================================================
+aws:
+  option_1:
+    name: ECS Fargate
+    description: Run Keycloak as container
+    instance: 1 vCPU, 2GB memory
+    
+  option_2:
+    name: Amazon Cognito
+    description: Managed alternative (can import Keycloak realms)
+    
+  database: RDS PostgreSQL for production
+
+# =============================================================================
+# INTEGRATION PATTERNS (Complete Guide)
+# =============================================================================
+patterns:
+  # ---------------------------------------------------------------------------
+  # STEP 1: React Frontend with keycloak-js
+  # ---------------------------------------------------------------------------
+  react_setup: |
+    # Install keycloak-js
+    npm install keycloak-js
+    
+    # Create src/keycloak.ts:
+    import Keycloak from 'keycloak-js';
+    
+    const keycloak = new Keycloak({
+      url: 'http://localhost:8081',      // Keycloak server
+      realm: 'resumax',                  // Your realm name
+      clientId: 'resumax-web',           // Client ID from realm config
+    });
+    
+    export default keycloak;
+    
+  react_provider: |
+    # Create src/AuthProvider.tsx:
+    import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+    import keycloak from './keycloak';
+    
+    interface AuthContextType {
+      isAuthenticated: boolean;
+      token: string | null;
+      user: any;
+      login: () => void;
+      logout: () => void;
+      register: () => void;
+    }
+    
+    const AuthContext = createContext<AuthContextType | null>(null);
+    
+    export function AuthProvider({ children }: { children: ReactNode }) {
+      const [isAuthenticated, setIsAuthenticated] = useState(false);
+      const [token, setToken] = useState<string | null>(null);
+      const [user, setUser] = useState<any>(null);
+    
+      useEffect(() => {
+        keycloak.init({ onLoad: 'check-sso' }).then((authenticated) => {
+          setIsAuthenticated(authenticated);
+          if (authenticated) {
+            setToken(keycloak.token ?? null);
+            setUser(keycloak.tokenParsed);
+          }
+        });
+    
+        // Token refresh
+        keycloak.onTokenExpired = () => {
+          keycloak.updateToken(30).then((refreshed) => {
+            if (refreshed) setToken(keycloak.token ?? null);
+          });
+        };
+      }, []);
+    
+      const login = () => keycloak.login();
+      const logout = () => keycloak.logout();
+      const register = () => keycloak.register();
+    
+      return (
+        <AuthContext.Provider value={{ isAuthenticated, token, user, login, logout, register }}>
+          {children}
+        </AuthContext.Provider>
+      );
+    }
+    
+    export const useAuth = () => {
+      const context = useContext(AuthContext);
+      if (!context) throw new Error('useAuth must be used within AuthProvider');
+      return context;
+    };
+    
+  react_usage: |
+    # Wrap app with AuthProvider in main.tsx:
+    import { AuthProvider } from './AuthProvider';
+    
+    ReactDOM.createRoot(document.getElementById('root')!).render(
+      <AuthProvider>
+        <App />
+      </AuthProvider>
+    );
+    
+    # Use in components:
+    import { useAuth } from './AuthProvider';
+    
+    function Header() {
+      const { isAuthenticated, user, login, logout, register } = useAuth();
+    
+      return (
+        <header>
+          {isAuthenticated ? (
+            <>
+              <span>Welcome, {user?.preferred_username}</span>
+              <button onClick={logout}>Logout</button>
+            </>
+          ) : (
+            <>
+              <button onClick={login}>Login</button>
+              <button onClick={register}>Register</button>
+            </>
+          )}
+        </header>
+      );
+    }
+    
+  # ---------------------------------------------------------------------------
+  # STEP 2: FastAPI Backend JWT Validation
+  # ---------------------------------------------------------------------------
+  fastapi_setup: |
+    # Add to requirements.txt:
+    pyjwt[crypto]>=2.8.0
+    httpx>=0.25.0
+    
+    # Create auth.py:
+    import os
+    from functools import lru_cache
+    from fastapi import Depends, HTTPException, status
+    from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+    import jwt
+    import httpx
+    
+    KEYCLOAK_URL = os.getenv("KEYCLOAK_URL", "http://keycloak:8080")
+    KEYCLOAK_REALM = os.getenv("KEYCLOAK_REALM", "resumax")
+    CLIENT_ID = os.getenv("KEYCLOAK_CLIENT_ID", "resumax-web")
+    
+    security = HTTPBearer()
+    
+    @lru_cache()
+    def get_jwks():
+        """Fetch and cache Keycloak public keys"""
+        url = f"{KEYCLOAK_URL}/realms/{KEYCLOAK_REALM}/protocol/openid-connect/certs"
+        response = httpx.get(url)
+        return response.json()
+    
+    def validate_token(token: str) -> dict:
+        """Validate JWT and return decoded payload"""
+        try:
+            jwks = get_jwks()
+            # Get the key id from token header
+            unverified = jwt.get_unverified_header(token)
+            kid = unverified.get("kid")
+            
+            # Find matching key
+            key = None
+            for k in jwks.get("keys", []):
+                if k.get("kid") == kid:
+                    key = jwt.algorithms.RSAAlgorithm.from_jwk(k)
+                    break
+            
+            if not key:
+                raise HTTPException(401, "Invalid token key")
+            
+            # Decode with verification
+            payload = jwt.decode(
+                token,
+                key,
+                algorithms=["RS256"],
+                audience=CLIENT_ID,
+                options={"verify_aud": True}
+            )
+            return payload
+        except jwt.ExpiredSignatureError:
+            raise HTTPException(401, "Token expired")
+        except jwt.InvalidTokenError as e:
+            raise HTTPException(401, f"Invalid token: {e}")
+    
+    async def get_current_user(
+        credentials: HTTPAuthorizationCredentials = Depends(security)
+    ) -> dict:
+        """Dependency to get current authenticated user"""
+        return validate_token(credentials.credentials)
+    
+    async def require_role(role: str):
+        """Dependency factory to require specific role"""
+        async def check_role(user: dict = Depends(get_current_user)):
+            roles = user.get("realm_access", {}).get("roles", [])
+            if role not in roles:
+                raise HTTPException(403, f"Role '{role}' required")
+            return user
+        return check_role
+    
+  fastapi_usage: |
+    # Use in endpoints:
+    from auth import get_current_user
+    
+    @app.post("/api/roast")
+    async def roast_resume(
+        request: RoastRequest,
+        user: dict = Depends(get_current_user)  # Requires auth
+    ):
+        user_id = user.get("sub")  # Keycloak user ID
+        email = user.get("email")
+        # ... process request
+        return {"user": user_id, "result": "..."}
+    
+    # Require specific role
+    @app.get("/api/admin/users")
+    async def list_users(
+        admin: dict = Depends(require_role("admin"))
+    ):
+        # Only admins can access
+        return {"users": [...]}
+    
+  # ---------------------------------------------------------------------------
+  # STEP 3: API Calls with Token
+  # ---------------------------------------------------------------------------
+  react_api_calls: |
+    # Create api client with auth:
+    import { useAuth } from './AuthProvider';
+    
+    function useApi() {
+      const { token } = useAuth();
+      
+      const api = async (endpoint: string, options: RequestInit = {}) => {
+        const res = await fetch(`http://localhost:8000${endpoint}`, {
+          ...options,
+          headers: {
+            ...options.headers,
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        });
+        
+        if (res.status === 401) {
+          // Token expired, trigger re-login
+          keycloak.login();
+        }
+        
+        return res.json();
+      };
+      
+      return api;
+    }
+    
+    // Usage in components:
+    const api = useApi();
+    const result = await api('/api/roast', {
+      method: 'POST',
+      body: JSON.stringify({ resumeText, jobDescription }),
+    });
+
+# =============================================================================
+# REALM TEMPLATE
+# =============================================================================
+template:
+  realm_json: |
+    {
+      "realm": "my-realm",
+      "enabled": true,
+      "sslRequired": "external",
+      "registrationAllowed": true,
+      "loginWithEmailAllowed": true,
+      "duplicateEmailsAllowed": false,
+      "resetPasswordAllowed": true,
+      "editUsernameAllowed": false,
+      "bruteForceProtected": true,
+      "clients": [
+        {
+          "clientId": "my-webapp",
+          "enabled": true,
+          "publicClient": true,
+          "directAccessGrantsEnabled": true,
+          "redirectUris": ["http://localhost:3000/*"],
+          "webOrigins": ["http://localhost:3000"],
+          "defaultClientScopes": ["web-origins", "profile", "email"]
+        }
+      ],
+      "users": [
+        {
+          "username": "testuser",
+          "enabled": true,
+          "email": "test@example.com",
+          "credentials": [
+            {"type": "password", "value": "testpass123!", "temporary": false}
+          ]
+        }
+      ]
+    }
+
+# =============================================================================
+# TROUBLESHOOTING
+# =============================================================================
+troubleshooting:
+  - symptom: Container exits immediately
+    cause: Database not ready or invalid credentials
+    solution: Ensure postgres healthcheck passes before Keycloak starts
+    
+  - symptom: Realm import fails
+    cause: Invalid JSON or duplicate realm
+    solution: Validate JSON syntax, delete existing realm
+    
+  - symptom: CORS errors from frontend
+    cause: Web origins not configured
+    solution: Add frontend URL to client's Web Origins in admin console
+
+# =============================================================================
+# SECURITY CHECKLIST
+# =============================================================================
+security:
+  production_checklist:
+    - "[ ] HTTPS enabled (KC_HOSTNAME_STRICT=true)"
+    - "[ ] Admin password changed from default"
+    - "[ ] Public client disabled for confidential apps"
+    - "[ ] Redirect URIs restricted to production domains"
+    - "[ ] Brute force protection enabled"
+    - "[ ] Audit logging enabled"
+
+# =============================================================================
+# IMPLEMENTATION INSTRUCTIONS
+# =============================================================================
+implementation_instructions: |
+  ## For AI Implementation Agents
+  
+  1. **Add to docker-compose** using the compose_snippet
+  2. **Create realm JSON** based on template
+  3. **Configure frontend** with keycloak-js or next-auth
+  4. **Add JWT validation** to backend API
+  5. **Test login flow** end-to-end
+  
+  ### Quick Start:
+  ```bash
+  # Access admin console
+  open http://localhost:8080/admin
+  # Login: admin / (your KEYCLOAK_ADMIN_PASSWORD)
+  
+  # Get OIDC config for your realm
+  curl http://localhost:8080/realms/my-realm/.well-known/openid-configuration
+  ```

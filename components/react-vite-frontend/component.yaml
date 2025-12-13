@@ -1,0 +1,311 @@
+# =============================================================================
+# React Vite Frontend Component
+# =============================================================================
+# A modern React SPA with TypeScript, Tailwind CSS, and production-ready Docker.
+# Validated in: UC1 Resume Optimizer experiment
+# =============================================================================
+
+name: react-vite-frontend
+version: 1.0.0
+category: frontend
+validated: 2024-12-13
+
+description: |
+  Production-ready React frontend using Vite for fast builds,
+  TypeScript for type safety, and Tailwind CSS for styling.
+  Dockerized with nginx for production deployment.
+
+# =============================================================================
+# PORTS & NETWORKING
+# =============================================================================
+ports:
+  development: 3000
+  production: 80  # nginx
+  configurable: true
+
+# =============================================================================
+# ENVIRONMENT VARIABLES
+# =============================================================================
+environment:
+  build_time:
+    - name: VITE_API_URL
+      description: Backend API URL (build-time only)
+      default: ""  # Empty means relative URLs (/api/*)
+      note: Use relative URLs with nginx proxy
+      
+  optional:
+    - name: VITE_APP_NAME
+      description: Application name for UI
+      default: "My App"
+
+# =============================================================================
+# INTEGRATIONS
+# =============================================================================
+integrations:
+  provides:
+    - spa_ui
+    - static_assets
+    
+  requires:
+    - nginx-proxy (production)
+    
+  connects_to:
+    - fastapi-ai-service (via /api/* proxy)
+
+# =============================================================================
+# DOCKER
+# =============================================================================
+docker:
+  image: catalog/react-vite-frontend
+  production:
+    base: nginx:alpine
+    port: 80
+    
+  build:
+    stages:
+      - name: build
+        base: node:20-alpine
+        steps:
+          - npm ci
+          - npm run build
+      - name: serve
+        base: nginx:alpine
+        copy: /app/dist → /usr/share/nginx/html
+        
+  health_check:
+    test: ["CMD", "wget", "--spider", "http://localhost:80/"]
+    interval: 30s
+    timeout: 3s
+    retries: 3
+
+# =============================================================================
+# FILES (Template Structure)
+# =============================================================================
+files:
+  essential:
+    - src/App.tsx           # Main application component
+    - src/main.tsx          # React entry point
+    - src/index.css         # Global styles (Tailwind)
+    - index.html            # HTML template
+    - package.json          # Dependencies
+    - vite.config.ts        # Vite configuration
+    - tailwind.config.js    # Tailwind configuration
+    - tsconfig.json         # TypeScript config
+    - Dockerfile            # Production build
+    - nginx.conf            # Nginx configuration
+    
+  optional:
+    - src/components/       # Reusable UI components
+    - src/hooks/            # Custom React hooks
+    - src/types/            # TypeScript types
+    - src/api/              # API client functions
+    - .dockerignore         # Build optimization
+    - postcss.config.js     # PostCSS for Tailwind
+
+# =============================================================================
+# TEMPLATE CODE
+# =============================================================================
+template:
+  package_json: |
+    {
+      "name": "my-frontend",
+      "version": "0.1.0",
+      "type": "module",
+      "scripts": {
+        "dev": "vite",
+        "build": "tsc && vite build",
+        "preview": "vite preview"
+      },
+      "dependencies": {
+        "react": "^18.2.0",
+        "react-dom": "^18.2.0",
+        "lucide-react": "^0.263.1"
+      },
+      "devDependencies": {
+        "@types/react": "^18.2.0",
+        "@types/react-dom": "^18.2.0",
+        "@vitejs/plugin-react": "^4.0.0",
+        "autoprefixer": "^10.4.14",
+        "postcss": "^8.4.24",
+        "tailwindcss": "^3.3.2",
+        "typescript": "^5.0.0",
+        "vite": "^5.0.0"
+      }
+    }
+
+  vite_config: |
+    import { defineConfig } from 'vite'
+    import react from '@vitejs/plugin-react'
+    
+    export default defineConfig({
+      plugins: [react()],
+      server: {
+        port: 3000,
+        strictPort: false,  // Find next available port
+        proxy: {
+          '/api': {
+            target: 'http://localhost:8000',
+            changeOrigin: true,
+          },
+        },
+      },
+    })
+
+  dockerfile: |
+    # Multi-stage build for production
+    FROM node:20-alpine AS build
+    WORKDIR /app
+    COPY package*.json ./
+    RUN npm ci
+    COPY . .
+    RUN npm run build
+    
+    FROM nginx:alpine
+    COPY --from=build /app/dist /usr/share/nginx/html
+    COPY nginx.conf /etc/nginx/conf.d/default.conf
+    EXPOSE 80
+    CMD ["nginx", "-g", "daemon off;"]
+
+  nginx_conf: |
+    server {
+        listen 80;
+        root /usr/share/nginx/html;
+        index index.html;
+        
+        # API proxy
+        location /api/ {
+            proxy_pass http://ai-service:8000;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_connect_timeout 60s;
+            proxy_read_timeout 120s;
+        }
+        
+        # Health check proxy
+        location /health {
+            proxy_pass http://ai-service:8000/health;
+        }
+        
+        # SPA routing
+        location / {
+            try_files $uri $uri/ /index.html;
+        }
+        
+        # Static asset caching
+        location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg)$ {
+            expires 1y;
+            add_header Cache-Control "public, immutable";
+        }
+    }
+
+  app_tsx: |
+    import { useState } from 'react'
+    
+    interface ApiResponse {
+      result: string
+      model_used: string
+    }
+    
+    function App() {
+      const [input, setInput] = useState('')
+      const [result, setResult] = useState<ApiResponse | null>(null)
+      const [loading, setLoading] = useState(false)
+      
+      const handleSubmit = async () => {
+        setLoading(true)
+        try {
+          const response = await fetch('/api/ai/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt: input }),
+          })
+          const data = await response.json()
+          setResult(data)
+        } catch (error) {
+          console.error('API error:', error)
+        } finally {
+          setLoading(false)
+        }
+      }
+      
+      return (
+        <div className="min-h-screen bg-gray-900 text-white p-8">
+          <h1 className="text-3xl font-bold mb-4">My AI App</h1>
+          <textarea
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            className="w-full h-32 bg-gray-800 p-4 rounded"
+            placeholder="Enter your prompt..."
+          />
+          <button
+            onClick={handleSubmit}
+            disabled={loading}
+            className="mt-4 bg-blue-600 px-6 py-2 rounded"
+          >
+            {loading ? 'Processing...' : 'Generate'}
+          </button>
+          {result && (
+            <div className="mt-4 p-4 bg-gray-800 rounded">
+              <pre>{result.result}</pre>
+            </div>
+          )}
+        </div>
+      )
+    }
+    
+    export default App
+
+# =============================================================================
+# API PATTERNS
+# =============================================================================
+patterns:
+  api_calls: |
+    // Use relative URLs for nginx proxy compatibility
+    const response = await fetch('/api/ai/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    })
+    
+  error_handling: |
+    try {
+      const response = await fetch('/api/...')
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`)
+      }
+      return await response.json()
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Unknown error')
+    }
+    
+  loading_states: |
+    const [loading, setLoading] = useState(false)
+    const [error, setError] = useState<string | null>(null)
+    
+    // In JSX:
+    {loading && <Spinner />}
+    {error && <ErrorMessage message={error} />}
+
+# =============================================================================
+# IMPLEMENTATION AGENT INSTRUCTIONS
+# =============================================================================
+implementation_instructions: |
+  ## For AI Implementation Agents
+  
+  1. **Copy template files** from the `template/` directory
+  2. **Install dependencies**: npm install
+  3. **Start development**: npm run dev (opens http://localhost:3000)
+  4. **Customize UI** in src/App.tsx
+  5. **Build for production**: npm run build
+  6. **Docker build**: docker build -t myapp-frontend .
+  
+  ### Key Points:
+  - Use **relative URLs** (`/api/*`) for API calls
+  - The nginx.conf proxies /api/* to the backend
+  - Tailwind CSS is pre-configured
+  - TypeScript types help catch errors early
+  
+  ### Development vs Production:
+  - Dev: Vite server with hot reload (port 3000)
+  - Prod: nginx serving static files (port 80)

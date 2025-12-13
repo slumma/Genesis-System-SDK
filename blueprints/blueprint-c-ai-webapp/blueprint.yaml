@@ -1,0 +1,280 @@
+# =============================================================================
+# Blueprint C - AI Webapp
+# =============================================================================
+# A complete stack for building AI-powered web applications with:
+# - LLM integration via OpenRouter
+# - Enterprise authentication
+# - Durable AI workflows
+# - Full observability
+# =============================================================================
+
+name: blueprint-c-ai-webapp
+version: 1.0.0
+description: Production-ready AI-powered web application stack
+validated: 2024-12-13
+experiment: use-case-1-resume-optimizer
+
+# =============================================================================
+# USE CASES
+# =============================================================================
+use_cases:
+  - AI-powered document analysis
+  - Resume optimization/review
+  - Content generation applications
+  - Chat interfaces with AI
+  - AI assistants with user accounts
+  - SaaS applications with AI features
+
+# =============================================================================
+# COMPONENTS
+# =============================================================================
+components:
+  # --- Core Application (required) ---
+  required:
+    - name: fastapi-ai-service
+      catalog_path: components/fastapi-ai-service
+      purpose: Backend API with LLM integration
+      port: 8000
+      
+    - name: react-vite-frontend
+      catalog_path: components/react-vite-frontend
+      purpose: Modern React SPA with TypeScript
+      port: 3000
+      
+    - name: nginx-proxy
+      catalog_path: components/nginx-proxy
+      purpose: Reverse proxy, static serving, SSL termination
+      port: 80
+      
+  # --- Infrastructure (recommended) ---
+  recommended:
+    - name: postgres
+      catalog_path: components/postgres
+      purpose: Relational database for user data, app state
+      port: 5432
+      
+    - name: redis
+      catalog_path: components/redis
+      purpose: Caching, rate limiting, session store
+      port: 6379
+      
+    - name: keycloak
+      catalog_path: components/keycloak
+      purpose: Authentication, authorization, SSO
+      port: 8080
+
+  # --- Advanced (optional) ---
+  optional:
+    - name: temporal
+      catalog_path: components/temporal
+      purpose: Durable workflows for long-running AI tasks
+      port: 7233
+      
+    - name: opentelemetry
+      catalog_path: components/opentelemetry
+      purpose: Distributed tracing, metrics
+      ports: [4317, 4318]
+      
+    - name: langfuse
+      catalog_path: components/langfuse
+      purpose: LLM-specific observability and cost tracking
+      external: true
+
+# =============================================================================
+# ARCHITECTURE
+# =============================================================================
+architecture: |
+  ┌─────────────────────────────────────────────────────────────────┐
+  │                          FRONTEND                                │
+  │  React + Vite + TypeScript + Tailwind                           │
+  │  Port: 3000 (dev) / 80 (nginx prod)                             │
+  └───────────────────────────┬─────────────────────────────────────┘
+                              │ REST + SSE
+                              ▼
+  ┌─────────────────────────────────────────────────────────────────┐
+  │                    NGINX (Production)                            │
+  │  - /api/* → FastAPI                                              │
+  │  - /* → Static React                                             │
+  │  - SSL termination                                               │
+  └───────────────────────────┬─────────────────────────────────────┘
+                              │
+                              ▼
+  ┌─────────────────────────────────────────────────────────────────┐
+  │                    FASTAPI AI SERVICE                            │
+  │  Port: 8000                                                      │
+  │  - LLM calls via OpenRouter                                      │
+  │  - Structured prompts                                            │
+  │  - CORS handling                                                 │
+  └──────┬──────────────┬──────────────┬───────────────────────────┘
+         │              │              │
+         ▼              ▼              ▼
+  ┌──────────┐   ┌──────────┐   ┌──────────────────┐
+  │ Postgres │   │  Redis   │   │   OpenRouter     │
+  │  (data)  │   │ (cache)  │   │  (LLM provider)  │
+  └──────────┘   └──────────┘   └──────────────────┘
+
+# =============================================================================
+# INTEGRATIONS WIRING
+# =============================================================================
+integrations:
+  frontend_to_api:
+    protocol: HTTP/REST
+    pattern: /api/* proxied to backend
+    cors: Same domain via nginx (production)
+    
+  api_to_llm:
+    provider: openrouter
+    protocol: HTTPS
+    models:
+      - anthropic/claude-haiku-4.5  # Fast, cheap (~$0.002/request)
+      - anthropic/claude-sonnet-4   # Balanced
+      - openai/gpt-4o               # Alternative
+      
+  api_to_database:
+    protocol: PostgreSQL
+    pooling: SQLAlchemy async
+    
+  api_to_cache:
+    protocol: Redis
+    uses:
+      - Rate limiting
+      - Session cache
+      - Response cache
+
+# =============================================================================
+# ENVIRONMENT VARIABLES
+# =============================================================================
+environment:
+  required:
+    - name: OPENROUTER_API_KEY
+      description: API key from openrouter.ai
+      obtain: https://openrouter.ai/keys
+      
+  recommended:
+    - name: POSTGRES_PASSWORD
+      description: Database password
+      default: localdevpassword123
+      
+    - name: REDIS_PASSWORD  
+      description: Redis password
+      default: localredis
+      
+  optional:
+    - name: OPENROUTER_MODEL
+      description: Default LLM model
+      default: anthropic/claude-haiku-4.5
+      
+    - name: ALLOWED_ORIGINS
+      description: CORS allowed origins (production)
+      default: "*"
+
+# =============================================================================
+# QUICK START
+# =============================================================================
+quick_start:
+  steps:
+    - step: 1
+      description: Clone and setup
+      command: |
+        cd catalog/blueprints/blueprint-c-ai-webapp
+        cp .env.example .env
+        
+    - step: 2
+      description: Add API key
+      command: |
+        # Edit .env and add your OPENROUTER_API_KEY
+        
+    - step: 3
+      description: Start all services
+      command: docker compose up -d
+      
+    - step: 4
+      description: Access
+      urls:
+        frontend: http://localhost:3000
+        api_docs: http://localhost:8000/docs
+        keycloak: http://localhost:8081
+
+# =============================================================================
+# AWS DEPLOYMENT
+# =============================================================================
+aws_deployment:
+  architecture:
+    frontend: S3 + CloudFront
+    backend: ECS Fargate
+    database: RDS PostgreSQL
+    cache: ElastiCache Redis
+    secrets: AWS Secrets Manager
+    
+  estimated_cost:
+    development: $20-50/month
+    production: $100-300/month
+    
+  services:
+    - name: frontend
+      service: S3 + CloudFront
+      purpose: Static hosting with CDN
+      
+    - name: api
+      service: ECS Fargate
+      cpu: 256
+      memory: 512
+      desired_count: 2
+      
+    - name: database
+      service: RDS PostgreSQL
+      instance: db.t3.micro (dev) / db.t3.small (prod)
+      
+    - name: cache
+      service: ElastiCache
+      instance: cache.t3.micro
+
+# =============================================================================
+# CUSTOMIZATION POINTS
+# =============================================================================
+customization:
+  frontend:
+    - src/App.tsx: Main application component
+    - src/index.css: Global styles (Tailwind)
+    - vite.config.ts: Build configuration
+    
+  backend:
+    - app/main.py: API endpoints
+    - app/prompts/: LLM prompt templates
+    - app/models/: Pydantic schemas
+    
+  infrastructure:
+    - docker-compose.yml: Service configuration
+    - nginx.conf: Proxy rules
+    - .env: Environment variables
+
+# =============================================================================
+# GOTCHAS & LESSONS LEARNED
+# =============================================================================
+gotchas:
+  local_development:
+    - issue: Port conflicts on macOS
+      solution: Use `lsof -i :PORT` before starting, use non-standard ports
+      
+    - issue: CORS errors with file:// URLs
+      solution: Use allow_origins=["*"] in dev, restrict in production
+      
+    - issue: Process suspension in background
+      solution: Use Docker or start servers in foreground
+      
+  production:
+    - issue: CORS with credentials
+      solution: Can't use "*" with credentials=True, specify exact origins
+      
+    - issue: SSL certificates
+      solution: Use AWS ACM for free certificates
+
+# =============================================================================
+# FILES INCLUDED
+# =============================================================================
+files:
+  - docker-compose.yml          # Full stack orchestration
+  - .env.example                 # Environment template
+  - services/ai-service/        # FastAPI backend
+  - services/frontend/          # React frontend
+  - config/                      # Service configurations

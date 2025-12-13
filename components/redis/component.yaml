@@ -1,0 +1,51 @@
+# =============================================================================
+# Redis Cache Component
+# =============================================================================
+name: redis
+version: 1.0.0
+category: infrastructure
+validated: 2024-12-13
+
+description: Redis in-memory cache for rate limiting, sessions, and response caching.
+
+docker:
+  image: redis:7-alpine
+  port: 6379
+  
+  compose_snippet: |
+    redis:
+      image: redis:7-alpine
+      container_name: ${APP_NAME}-redis
+      restart: unless-stopped
+      command: redis-server --requirepass ${REDIS_PASSWORD:-localredis}
+      ports:
+        - "6379:6379"
+      volumes:
+        - redis_data:/data
+      healthcheck:
+        test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-localredis}", "ping"]
+        interval: 10s
+        timeout: 5s
+        retries: 5
+
+environment:
+  required:
+    - REDIS_PASSWORD: Redis authentication password
+
+aws:
+  service: ElastiCache
+  instance: cache.t3.micro
+
+patterns:
+  connection_url: "redis://:${REDIS_PASSWORD}@redis:6379/0"
+  rate_limiting: |
+    # Example rate limiting with Redis
+    import redis
+    r = redis.from_url(os.getenv("REDIS_URL"))
+    
+    def check_rate_limit(user_id: str, limit: int = 10, window: int = 60):
+        key = f"rate:{user_id}"
+        current = r.incr(key)
+        if current == 1:
+            r.expire(key, window)
+        return current <= limit

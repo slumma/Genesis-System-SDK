@@ -1,0 +1,232 @@
+# =============================================================================
+# OpenTelemetry Observability Component
+# =============================================================================
+# Distributed tracing, metrics, and logging collection
+# Validated in: UC1 Resume Optimizer experiment
+# =============================================================================
+
+name: opentelemetry
+version: 0.91.x
+category: observability
+validated: 2024-12-13
+
+description: |
+  OpenTelemetry observability stack for distributed tracing, metrics, and logs.
+  Provides visibility into AI pipelines, API latency, and system health.
+  Integrates with Jaeger for trace visualization.
+
+# =============================================================================
+# PORTS & NETWORKING
+# =============================================================================
+ports:
+  otlp_grpc: 4317      # OTLP gRPC receiver
+  otlp_http: 4318      # OTLP HTTP receiver
+  jaeger_ui: 16686     # Jaeger UI
+  prometheus: 8889     # Prometheus metrics export
+
+# =============================================================================
+# COMPONENTS
+# =============================================================================
+components:
+  collector:
+    image: otel/opentelemetry-collector-contrib:0.91.0
+    purpose: Receives, processes, and exports telemetry
+    
+  jaeger:
+    image: jaegertracing/all-in-one:1.53
+    purpose: Trace storage and visualization
+    
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    purpose: Metrics storage (optional)
+
+# =============================================================================
+# DOCKER
+# =============================================================================
+docker:
+  compose_snippet: |
+    otel-collector:
+      image: otel/opentelemetry-collector-contrib:0.91.0
+      container_name: ${APP_NAME}-otel-collector
+      command: ["--config=/etc/otel-collector-config.yaml"]
+      volumes:
+        - ./config/otel/collector.yaml:/etc/otel-collector-config.yaml:ro
+      ports:
+        - "4317:4317"   # OTLP gRPC
+        - "4318:4318"   # OTLP HTTP
+        - "8889:8889"   # Prometheus metrics
+      depends_on:
+        - jaeger
+        
+    jaeger:
+      image: jaegertracing/all-in-one:1.53
+      container_name: ${APP_NAME}-jaeger
+      environment:
+        - COLLECTOR_OTLP_ENABLED=true
+      ports:
+        - "16686:16686"  # UI
+        - "14268:14268"  # HTTP collector
+
+# =============================================================================
+# COLLECTOR CONFIGURATION
+# =============================================================================
+template:
+  collector_yaml: |
+    # config/otel/collector.yaml
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+    
+    processors:
+      batch:
+        timeout: 1s
+        send_batch_size: 1024
+      memory_limiter:
+        check_interval: 1s
+        limit_mib: 512
+    
+    exporters:
+      otlp:
+        endpoint: jaeger:4317
+        tls:
+          insecure: true
+      logging:
+        loglevel: info
+    
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [otlp, logging]
+        metrics:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [logging]
+
+# =============================================================================
+# SDK INTEGRATION PATTERNS
+# =============================================================================
+patterns:
+  python_fastapi: |
+    # FastAPI auto-instrumentation
+    # requirements.txt:
+    # opentelemetry-api
+    # opentelemetry-sdk
+    # opentelemetry-instrumentation-fastapi
+    # opentelemetry-exporter-otlp
+    
+    from opentelemetry import trace
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+    from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+    from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+    
+    # Setup tracing
+    trace.set_tracer_provider(TracerProvider())
+    otlp_exporter = OTLPSpanExporter(
+        endpoint=os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:4317"),
+        insecure=True,
+    )
+    trace.get_tracer_provider().add_span_processor(
+        BatchSpanProcessor(otlp_exporter)
+    )
+    
+    # Auto-instrument FastAPI
+    FastAPIInstrumentor.instrument_app(app)
+
+  python_manual_spans: |
+    # Manual span creation for custom tracing
+    from opentelemetry import trace
+    
+    tracer = trace.get_tracer(__name__)
+    
+    async def call_llm(prompt: str):
+        with tracer.start_as_current_span("llm_call") as span:
+            span.set_attribute("prompt_length", len(prompt))
+            span.set_attribute("model", "claude-haiku")
+            
+            result = await make_api_call(prompt)
+            
+            span.set_attribute("response_length", len(result))
+            return result
+
+  react_frontend: |
+    // Frontend tracing with @opentelemetry/sdk-trace-web
+    // Note: Usually backend tracing is sufficient
+    import { WebTracerProvider } from '@opentelemetry/sdk-trace-web';
+    import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
+    
+    const provider = new WebTracerProvider();
+    provider.addSpanProcessor(
+      new SimpleSpanProcessor(
+        new OTLPTraceExporter({ url: '/api/traces' })
+      )
+    );
+    provider.register();
+
+# =============================================================================
+# AWS ALTERNATIVES
+# =============================================================================
+aws:
+  option_1:
+    name: AWS X-Ray
+    description: Managed tracing service
+    integration: Use OTEL collector with X-Ray exporter
+    
+  option_2:
+    name: Amazon Managed Grafana
+    description: Managed dashboards for metrics
+    
+  option_3:
+    name: CloudWatch
+    description: Native AWS logging and metrics
+
+# =============================================================================
+# TROUBLESHOOTING
+# =============================================================================
+troubleshooting:
+  - symptom: No traces appearing in Jaeger
+    cause: OTEL collector not receiving data
+    solution: Check OTEL_EXPORTER_OTLP_ENDPOINT env var
+    
+  - symptom: High memory usage in collector
+    cause: Batch processor buffer full
+    solution: Adjust memory_limiter settings
+    
+  - symptom: Connection refused to 4317
+    cause: Collector not running
+    solution: Check docker logs for otel-collector
+
+# =============================================================================
+# IMPLEMENTATION INSTRUCTIONS
+# =============================================================================
+implementation_instructions: |
+  ## For AI Implementation Agents
+  
+  1. **Add to docker-compose** using compose_snippet
+  2. **Create collector config** from template
+  3. **Install Python SDK**:
+     ```
+     pip install opentelemetry-api opentelemetry-sdk \
+       opentelemetry-instrumentation-fastapi \
+       opentelemetry-exporter-otlp
+     ```
+  4. **Add to FastAPI app** using pattern above
+  5. **Set environment**:
+     ```
+     OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+     OTEL_SERVICE_NAME=my-service
+     ```
+  
+  ### Quick Start:
+  ```bash
+  # View traces
+  open http://localhost:16686
+  
+  # Make API call, then search in Jaeger by service name
+  ```

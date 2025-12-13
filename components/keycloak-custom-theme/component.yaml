@@ -1,0 +1,351 @@
+apiVersion: genesis.ai/v1
+kind: Component
+metadata:
+  name: keycloak-custom-theme
+  version: 1.0.0
+  category: authentication
+  tags:
+    - keycloak
+    - theme
+    - branding
+    - oauth
+    - customization
+
+spec:
+  description: |
+    Custom Keycloak theme for app-native login experience.
+    CSS-only customization that extends Keycloak's default theme
+    with your app's design system colors and styling.
+
+  # ============================================
+  # DEPENDENCIES
+  # ============================================
+  dependencies:
+    required:
+      - name: keycloak
+        version: ">=24.0"
+        reason: "Theme parent and mounting point"
+
+  # ============================================
+  # CONFIGURATION
+  # ============================================
+  config:
+    variables:
+      # Brand colors (customize these)
+      PRIMARY_COLOR:
+        description: "Primary accent color (e.g., #ea580c for orange)"
+        default: "#ea580c"
+        required: true
+      PRIMARY_COLOR_HOVER:
+        description: "Primary color on hover"
+        default: "#c2410c"
+      BACKGROUND_COLOR:
+        description: "Page background color"
+        default: "#f8fafc"
+      CARD_BACKGROUND:
+        description: "Login card background"
+        default: "#ffffff"
+      TEXT_PRIMARY:
+        description: "Primary text color"
+        default: "#1e293b"
+      TEXT_SECONDARY:
+        description: "Secondary text color"
+        default: "#64748b"
+      BORDER_COLOR:
+        description: "Border and divider color"
+        default: "#e2e8f0"
+      
+      # Theme configuration
+      THEME_NAME:
+        description: "Name of your custom theme"
+        default: "custom-app"
+        required: true
+
+  # ============================================
+  # FILES TO CREATE
+  # ============================================
+  files:
+    - path: "config/keycloak/themes/${THEME_NAME}/login/theme.properties"
+      template: |
+        # Custom Login Theme
+        # Extends the base Keycloak theme
+        parent=keycloak
+        import=common/keycloak
+        
+        # Styles to use
+        styles=css/custom.css
+    
+    - path: "config/keycloak/themes/${THEME_NAME}/login/resources/css/custom.css"
+      template: |
+        /* Custom Keycloak Theme - Generated from keycloak-custom-theme component */
+        
+        :root {
+          --app-primary: ${PRIMARY_COLOR};
+          --app-primary-hover: ${PRIMARY_COLOR_HOVER};
+          --app-bg: ${BACKGROUND_COLOR};
+          --app-card-bg: ${CARD_BACKGROUND};
+          --app-text-primary: ${TEXT_PRIMARY};
+          --app-text-secondary: ${TEXT_SECONDARY};
+          --app-border: ${BORDER_COLOR};
+          --app-shadow: 0 10px 25px -3px rgba(0, 0, 0, 0.1);
+          --app-radius: 0.75rem;
+        }
+        
+        /* Page Background */
+        .login-pf {
+          background: linear-gradient(135deg, var(--app-bg) 0%, var(--app-border) 100%) !important;
+          background-image: none !important;
+        }
+        
+        /* Header / Logo */
+        #kc-header-wrapper {
+          color: var(--app-primary) !important;
+          font-size: 2rem !important;
+          font-weight: 700 !important;
+          text-align: center !important;
+          letter-spacing: 0.15em !important;
+          text-transform: uppercase !important;
+        }
+        
+        /* Login Card */
+        #kc-form-wrapper, .card-pf {
+          background: var(--app-card-bg) !important;
+          border-radius: var(--app-radius) !important;
+          box-shadow: var(--app-shadow) !important;
+          border: 1px solid var(--app-border) !important;
+          padding: 2rem !important;
+          max-width: 420px !important;
+          margin: 2rem auto !important;
+        }
+        
+        /* Form Title */
+        #kc-page-title {
+          color: var(--app-text-primary) !important;
+          font-size: 1.5rem !important;
+          font-weight: 600 !important;
+          text-align: center !important;
+        }
+        
+        /* Labels */
+        .form-group label, .control-label {
+          color: var(--app-text-secondary) !important;
+          font-size: 0.875rem !important;
+          font-weight: 500 !important;
+        }
+        
+        /* Input Fields */
+        .form-control, input[type="text"], input[type="password"], input[type="email"] {
+          background: var(--app-card-bg) !important;
+          border: 1px solid var(--app-border) !important;
+          border-radius: 0.5rem !important;
+          padding: 0.75rem 1rem !important;
+          color: var(--app-text-primary) !important;
+          transition: all 0.2s ease !important;
+        }
+        
+        .form-control:focus, input:focus {
+          outline: none !important;
+          border-color: var(--app-primary) !important;
+          box-shadow: 0 0 0 3px rgba(234, 88, 12, 0.1) !important;
+        }
+        
+        /* Primary Button */
+        .btn-primary, input[type="submit"], #kc-login {
+          background: var(--app-primary) !important;
+          border: none !important;
+          border-radius: 0.5rem !important;
+          padding: 0.75rem 1.5rem !important;
+          font-weight: 600 !important;
+          color: white !important;
+          transition: all 0.2s ease !important;
+          width: 100% !important;
+        }
+        
+        .btn-primary:hover, input[type="submit"]:hover, #kc-login:hover {
+          background: var(--app-primary-hover) !important;
+          transform: translateY(-1px) !important;
+          box-shadow: 0 4px 12px rgba(234, 88, 12, 0.3) !important;
+        }
+        
+        /* Links */
+        a, .login-pf a {
+          color: var(--app-primary) !important;
+          text-decoration: none !important;
+        }
+        
+        a:hover, .login-pf a:hover {
+          color: var(--app-primary-hover) !important;
+          text-decoration: underline !important;
+        }
+        
+        /* Checkbox */
+        input[type="checkbox"] {
+          accent-color: var(--app-primary) !important;
+        }
+        
+        /* Alerts */
+        .alert-error, .alert-danger {
+          background: #fef2f2 !important;
+          border: 1px solid #fecaca !important;
+          color: #991b1b !important;
+          border-radius: 0.5rem !important;
+        }
+        
+        .alert-success {
+          background: #f0fdf4 !important;
+          border: 1px solid #bbf7d0 !important;
+          color: #166534 !important;
+          border-radius: 0.5rem !important;
+        }
+
+  # ============================================
+  # DOCKER COMPOSE SNIPPET
+  # ============================================
+  docker_compose:
+    keycloak:
+      volumes:
+        - type: bind
+          source: ./config/keycloak/themes
+          target: /opt/keycloak/themes
+          description: "Mount custom themes directory"
+
+  # ============================================
+  # REALM CONFIGURATION
+  # ============================================
+  realm_config:
+    description: "Add to your realm JSON to enable the theme"
+    example: |
+      {
+        "realm": "your-app",
+        "loginTheme": "${THEME_NAME}",
+        ...
+      }
+
+  # ============================================
+  # INTEGRATION STEPS
+  # ============================================
+  integration:
+    steps:
+      - order: 1
+        description: "Create theme directory structure"
+        command: |
+          mkdir -p config/keycloak/themes/${THEME_NAME}/login/resources/css
+      
+      - order: 2
+        description: "Copy theme files from templates"
+        files:
+          - theme.properties
+          - resources/css/custom.css
+      
+      - order: 3
+        description: "Add volume mount to docker-compose.yml"
+        snippet: |
+          keycloak:
+            volumes:
+              - ./config/keycloak/themes:/opt/keycloak/themes
+      
+      - order: 4
+        description: "Set loginTheme in realm JSON"
+        file: "config/keycloak/your-realm.json"
+        change: 'Add "loginTheme": "${THEME_NAME}"'
+      
+      - order: 5
+        description: "Restart Keycloak (wipe volumes on first setup)"
+        command: |
+          docker compose down --volumes
+          docker compose up -d
+
+  # ============================================
+  # TROUBLESHOOTING
+  # ============================================
+  troubleshooting:
+    - issue: "Theme not appearing"
+      solutions:
+        - "Verify theme name matches exactly in realm config"
+        - "Check volume mount path in docker-compose.yml"
+        - "If realm already imported, run: docker compose down --volumes"
+    
+    - issue: "CSS not applying"
+      solutions:
+        - "Ensure theme.properties has: styles=css/custom.css"
+        - "Use !important for overrides"
+        - "Check browser dev tools for CSS loading errors"
+    
+    - issue: "Login page shows default theme"
+      solutions:
+        - "Realm config change requires re-import"
+        - "Stop containers, delete postgres volume, restart"
+        - "Or manually change via Keycloak admin console"
+
+  # ============================================
+  # CUSTOMIZATION GUIDE
+  # ============================================
+  customization:
+    description: |
+      To match your app's design system:
+      
+      1. Colors: Update CSS variables in custom.css
+      2. Logo: Add image to resources/img/ and reference in CSS
+      3. Fonts: Import via @font-face or Google Fonts
+      4. Advanced: Override Keycloak's FreeMarker templates
+    
+    css_variables:
+      - name: "--app-primary"
+        description: "Primary brand color for buttons, links, accents"
+      - name: "--app-primary-hover"
+        description: "Darker shade for hover states"
+      - name: "--app-bg"
+        description: "Page background color"
+      - name: "--app-card-bg"
+        description: "Login card background"
+      - name: "--app-text-primary"
+        description: "Main text color"
+      - name: "--app-text-secondary"
+        description: "Secondary/muted text"
+      - name: "--app-border"
+        description: "Border and divider color"
+      - name: "--app-shadow"
+        description: "Box shadow for cards"
+      - name: "--app-radius"
+        description: "Border radius for cards and inputs"
+
+  # ============================================
+  # EXAMPLES
+  # ============================================
+  examples:
+    genesis_orange:
+      description: "Genesis orange theme (as implemented)"
+      variables:
+        PRIMARY_COLOR: "#ea580c"
+        PRIMARY_COLOR_HOVER: "#c2410c"
+        THEME_NAME: "genesis"
+    
+    modern_blue:
+      description: "Modern blue theme"
+      variables:
+        PRIMARY_COLOR: "#3b82f6"
+        PRIMARY_COLOR_HOVER: "#2563eb"
+        THEME_NAME: "modern-blue"
+    
+    dark_mode:
+      description: "Dark mode theme"
+      variables:
+        PRIMARY_COLOR: "#8b5cf6"
+        PRIMARY_COLOR_HOVER: "#7c3aed"
+        BACKGROUND_COLOR: "#0f172a"
+        CARD_BACKGROUND: "#1e293b"
+        TEXT_PRIMARY: "#f1f5f9"
+        TEXT_SECONDARY: "#94a3b8"
+        BORDER_COLOR: "#334155"
+        THEME_NAME: "dark"
+
+  # ============================================
+  # REFERENCES
+  # ============================================
+  references:
+    - title: "Keycloak Theme Development"
+      url: "https://www.keycloak.org/docs/latest/server_development/#_themes"
+    - title: "Use Case 3 Implementation"
+      path: "../../../use-case-3-keycloak-auth/implementation/"
+    - title: "Genesis Theme Example"
+      path: "../../../use-case-3-keycloak-auth/implementation/config/keycloak/themes/genesis/"

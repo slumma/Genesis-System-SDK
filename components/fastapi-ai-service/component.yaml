@@ -1,0 +1,274 @@
+# =============================================================================
+# FastAPI AI Service Component
+# =============================================================================
+# A production-ready Python API backend with LLM integration via OpenRouter.
+# Validated in: UC1 Resume Optimizer experiment
+# =============================================================================
+
+name: fastapi-ai-service
+version: 1.0.0
+category: backend
+validated: 2024-12-13
+
+description: |
+  FastAPI-based backend service optimized for AI/LLM applications.
+  Features async operations, structured prompts, CORS handling,
+  and health checks. Integrates with OpenRouter for multi-model LLM access.
+
+# =============================================================================
+# PORTS & NETWORKING
+# =============================================================================
+ports:
+  default: 8000
+  configurable: true
+  health_check: /health
+  api_docs: /docs
+
+# =============================================================================
+# ENVIRONMENT VARIABLES
+# =============================================================================
+environment:
+  required:
+    - name: OPENROUTER_API_KEY
+      description: API key from openrouter.ai for LLM access
+      sensitive: true
+      aws_source: secrets-manager
+      
+  optional:
+    - name: OPENROUTER_MODEL
+      description: Default LLM model to use
+      default: anthropic/claude-haiku-4.5
+      alternatives:
+        - anthropic/claude-sonnet-4
+        - openai/gpt-4o
+        - openai/gpt-4o-mini
+        
+    - name: ALLOWED_ORIGINS
+      description: CORS allowed origins
+      default: "*"
+      production: "https://yourdomain.com"
+      
+    - name: DATABASE_URL
+      description: PostgreSQL connection string
+      format: postgresql://user:pass@host:5432/dbname
+      
+    - name: REDIS_URL
+      description: Redis connection string
+      format: redis://:password@host:6379/0
+
+# =============================================================================
+# INTEGRATIONS
+# =============================================================================
+integrations:
+  provides:
+    - rest_api
+    - health_check
+    - openapi_docs
+    
+  requires:
+    - openrouter (external, required)
+    
+  optional:
+    - postgres (database)
+    - redis (cache)
+    - jaeger (tracing)
+
+# =============================================================================
+# DOCKER
+# =============================================================================
+docker:
+  image: catalog/fastapi-ai-service
+  base: python:3.12-slim
+  port: 8000
+  
+  build:
+    context: .
+    dockerfile: Dockerfile
+    
+  health_check:
+    test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+    interval: 30s
+    timeout: 10s
+    retries: 3
+    start_period: 10s
+
+# =============================================================================
+# FILES (Template Structure)
+# =============================================================================
+files:
+  essential:
+    - app/main.py           # FastAPI app + endpoints
+    - app/__init__.py       # Package marker
+    - requirements.txt      # Python dependencies
+    - Dockerfile            # Production container
+    
+  optional:
+    - app/prompts/          # LLM prompt templates
+    - app/models/           # Pydantic schemas
+    - app/services/         # Business logic
+    - app/config.py         # Settings management
+    - .dockerignore         # Build optimization
+
+# =============================================================================
+# TEMPLATE CODE
+# =============================================================================
+template:
+  main_py: |
+    # app/main.py - FastAPI AI Service Template
+    import os
+    import httpx
+    from fastapi import FastAPI, HTTPException
+    from fastapi.middleware.cors import CORSMiddleware
+    from pydantic import BaseModel
+    
+    app = FastAPI(title="AI Service", version="1.0.0")
+    
+    # CORS - Configure for production
+    ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"] if "*" in ALLOWED_ORIGINS else ALLOWED_ORIGINS,
+        allow_credentials=False,  # Must be False with "*"
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    
+    # Configuration
+    OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+    OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "anthropic/claude-haiku-4.5")
+    
+    # Request/Response Models
+    class AIRequest(BaseModel):
+        prompt: str
+        max_tokens: int = 1000
+    
+    class AIResponse(BaseModel):
+        result: str
+        model_used: str
+    
+    # Health Check
+    @app.get("/health")
+    async def health():
+        return {"status": "healthy", "service": "ai-service"}
+    
+    # AI Endpoint
+    @app.post("/api/ai/generate", response_model=AIResponse)
+    async def generate(request: AIRequest):
+        if not OPENROUTER_API_KEY:
+            raise HTTPException(500, "OPENROUTER_API_KEY not configured")
+            
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": OPENROUTER_MODEL,
+                    "messages": [{"role": "user", "content": request.prompt}],
+                    "max_tokens": request.max_tokens,
+                },
+            )
+            
+            if response.status_code != 200:
+                raise HTTPException(response.status_code, f"LLM error: {response.text}")
+                
+            data = response.json()
+            return AIResponse(
+                result=data["choices"][0]["message"]["content"],
+                model_used=OPENROUTER_MODEL,
+            )
+  
+  requirements_txt: |
+    fastapi>=0.100.0
+    uvicorn[standard]>=0.22.0
+    httpx>=0.24.0
+    pydantic>=2.0.0
+    pydantic-settings>=2.0.0
+    python-dotenv>=1.0.0
+    python-multipart>=0.0.6
+  
+  dockerfile: |
+    FROM python:3.12-slim
+    WORKDIR /app
+    
+    # Install system deps
+    RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+    
+    # Install Python deps
+    COPY requirements.txt .
+    RUN pip install --no-cache-dir -r requirements.txt
+    
+    # Copy app
+    COPY app/ ./app/
+    
+    EXPOSE 8000
+    CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+# =============================================================================
+# CORS CONFIGURATION
+# =============================================================================
+cors:
+  development:
+    allow_origins: ["*"]
+    allow_credentials: false
+    note: |
+      Use "*" for local development including file:// URLs.
+      Must set allow_credentials=False with wildcard origin.
+      
+  production:
+    allow_origins: "${ALLOWED_ORIGINS}"
+    allow_credentials: true
+    note: |
+      Specify exact origins like "https://myapp.example.com".
+      Can use credentials=True with specific origins.
+
+# =============================================================================
+# USAGE PATTERNS
+# =============================================================================
+patterns:
+  structured_prompts: |
+    # Define prompts as templates for consistency
+    ANALYSIS_PROMPT = """
+    Analyze the following {input_type} and provide:
+    1. A score from 0-100
+    2. Specific feedback items
+    3. Improvement suggestions
+    
+    Input:
+    {user_input}
+    
+    Respond in JSON format:
+    {{"score": <number>, "feedback": [<string>, ...], "suggestions": [<string>, ...]}}
+    """
+    
+  error_handling: |
+    async def call_llm(prompt: str) -> dict:
+        try:
+            response = await make_openrouter_call(prompt)
+            return response
+        except httpx.TimeoutException:
+            raise HTTPException(504, "LLM request timed out")
+        except httpx.HTTPError as e:
+            raise HTTPException(502, f"LLM service error: {str(e)}")
+
+# =============================================================================
+# IMPLEMENTATION AGENT INSTRUCTIONS
+# =============================================================================
+implementation_instructions: |
+  ## For AI Implementation Agents
+  
+  1. **Copy template files** from the `template/` directory
+  2. **Set environment variable** OPENROUTER_API_KEY
+  3. **Customize endpoints** in app/main.py for your use case
+  4. **Add prompt templates** in app/prompts/ for each AI feature
+  5. **Test locally** with: uvicorn app.main:app --reload --port 8000
+  6. **Build Docker** with: docker build -t myapp-api .
+  
+  ### Common Customizations:
+  - Add authentication middleware
+  - Add database integration (SQLAlchemy)
+  - Add rate limiting (Redis)
+  - Add response caching
+  - Add OpenTelemetry tracing
