@@ -7,10 +7,13 @@ This directory contains **structural schemas** - generic, reusable patterns that
 ### `/patterns/` - TypeScript Patterns
 Reusable TypeScript interfaces for common application patterns:
 
-- **api-response.ts** - Standard API response wrapper
-- **pagination.ts** - Pagination request/response patterns
-- **error-handling.ts** - Error response structure
-- **auth-user.ts** - Generic authenticated user shape
+| File | Description | Use Case |
+|------|-------------|----------|
+| **api-response.ts** | Standard API response wrapper | Consistent error handling, success responses |
+| **pagination.ts** | Pagination request/response patterns | List endpoints with page/limit/sort |
+| **auth-user.ts** | Generic authenticated user shape | RBAC, JWT claims, auth state |
+| **defensive-coding.ts** | Null safety, type guards, deep merge | Prevent runtime errors |
+| **error-boundary.tsx** | React error boundary template | Prevent full-page crashes |
 
 ### `/validation/` - JSON Schemas
 JSON Schema definitions for validating GSS artifacts:

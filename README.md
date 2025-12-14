@@ -77,7 +77,7 @@ Each component is an AI-consumable SDK module:
 | Documentation | Integration playbooks |
 | Tests | Golden smoke tests |
 
-### Available Components (10 total)
+### Available Components (11 total)
 
 | Component | Description | Category |
 |-----------|-------------|----------|
@@ -86,6 +86,7 @@ Each component is an AI-consumable SDK module:
 | **nextjs-frontend** | Next.js 14 App Router with Keycloak patterns | Frontend |
 | **keycloak** | OIDC auth, SSO, RBAC (with Next.js integration) | Identity |
 | **keycloak-custom-theme** | CSS-only theme customization | Identity |
+| **zod-validation** | TypeScript runtime validation (optional) | Validation |
 | **postgres** | PostgreSQL database | Infrastructure |
 | **redis** | Cache, rate limiting, sessions | Infrastructure |
 | **temporal** | Durable workflow orchestration | Workflow |
@@ -98,6 +99,8 @@ Each component is an AI-consumable SDK module:
 | **api-response.ts** | Standard API response wrapper | Consistent error handling, success responses |
 | **pagination.ts** | Pagination request/response | List endpoints with page/limit/sort |
 | **auth-user.ts** | Authenticated user types | RBAC, JWT claims, auth state |
+| **defensive-coding.ts** | Null safety, type guards, deep merge | Prevent runtime errors on edge cases |
+| **error-boundary.tsx** | React error boundary template | Prevent full-page crashes |
 
 ---
 

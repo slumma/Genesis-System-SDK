@@ -1,0 +1,408 @@
+# =============================================================================
+# Zod Runtime Validation Component
+# =============================================================================
+# Optional TypeScript-first schema validation for runtime data validation.
+# Use when you need to validate external data (API responses, form inputs, etc.)
+# =============================================================================
+
+name: zod-validation
+version: 3.22.x
+category: backend  # Also works in frontend
+validated: 2024-12-14
+
+description: |
+  Zod is a TypeScript-first schema declaration and validation library.
+  
+  Use Zod when you need:
+  - Runtime validation of API responses (data might not match TypeScript types)
+  - Form input validation
+  - Configuration file validation
+  - Any external data that enters your application
+  
+  Zod bridges the gap between TypeScript (compile-time) and runtime safety.
+
+# =============================================================================
+# WHY USE ZOD
+# =============================================================================
+rationale:
+  problem: |
+    TypeScript types only exist at compile time. At runtime, external data
+    (API responses, user input, etc.) might not match your types:
+    
+    ```typescript
+    // TypeScript thinks this is safe:
+    const user: User = await fetch('/api/user').then(r => r.json());
+    console.log(user.email);  // Runtime error if API returns { error: '404' }
+    ```
+    
+  solution: |
+    Zod validates data at runtime and infers TypeScript types:
+    
+    ```typescript
+    const UserSchema = z.object({ email: z.string().email() });
+    const result = UserSchema.safeParse(apiData);
+    if (result.success) {
+      console.log(result.data.email);  // Type-safe AND runtime-safe
+    }
+    ```
+
+# =============================================================================
+# INSTALLATION
+# =============================================================================
+installation:
+  npm: npm install zod
+  pnpm: pnpm add zod
+  yarn: yarn add zod
+  
+  version_note: |
+    This component documents Zod 3.22.x patterns.
+    Check npm for latest version: https://www.npmjs.com/package/zod
+
+# =============================================================================
+# PACKAGE.JSON ADDITION
+# =============================================================================
+package_json:
+  dependencies:
+    zod: "3.22.4"  # Pinned version
+
+# =============================================================================
+# BASIC PATTERNS
+# =============================================================================
+patterns:
+  # ---------------------------------------------------------------------------
+  # SCHEMA DEFINITION
+  # ---------------------------------------------------------------------------
+  basic_schema: |
+    // Define a schema (like TypeScript interface, but with validation)
+    import { z } from 'zod';
+    
+    const UserSchema = z.object({
+      id: z.string().uuid(),
+      email: z.string().email(),
+      name: z.string().min(1),
+      age: z.number().int().positive().optional(),
+      role: z.enum(['user', 'admin']).default('user'),
+      createdAt: z.string().datetime(),
+    });
+    
+    // Infer TypeScript type from schema
+    type User = z.infer<typeof UserSchema>;
+    // Result: { id: string; email: string; name: string; age?: number; role: 'user' | 'admin'; createdAt: string }
+    
+  # ---------------------------------------------------------------------------
+  # SAFE PARSING
+  # ---------------------------------------------------------------------------
+  safe_parse: |
+    // safeParse - doesn't throw, returns result object
+    const result = UserSchema.safeParse(unknownData);
+    
+    if (result.success) {
+      // result.data is typed as User
+      console.log(result.data.email);
+    } else {
+      // result.error contains validation errors
+      console.log(result.error.issues);
+      // [{ code: 'invalid_type', path: ['email'], message: 'Expected string' }]
+    }
+    
+  # ---------------------------------------------------------------------------
+  # THROW ON INVALID
+  # ---------------------------------------------------------------------------
+  parse_throw: |
+    // parse - throws ZodError if invalid
+    try {
+      const user = UserSchema.parse(unknownData);
+      // user is typed as User
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        console.log(error.issues);
+      }
+    }
+    
+  # ---------------------------------------------------------------------------
+  # API RESPONSE VALIDATION
+  # ---------------------------------------------------------------------------
+  api_response: |
+    // Pattern for validating API responses
+    import { z } from 'zod';
+    
+    // Define response schema
+    const ApiResponseSchema = z.object({
+      success: z.boolean(),
+      data: z.object({
+        users: z.array(UserSchema),
+      }),
+      error: z.object({
+        code: z.string(),
+        message: z.string(),
+      }).optional(),
+    });
+    
+    // Use in fetch
+    async function fetchUsers(): Promise<User[]> {
+      const response = await fetch('/api/users');
+      const json = await response.json();
+      
+      const result = ApiResponseSchema.safeParse(json);
+      
+      if (!result.success) {
+        console.error('Invalid API response:', result.error.issues);
+        return [];  // Return safe default
+      }
+      
+      return result.data.data.users;
+    }
+    
+  # ---------------------------------------------------------------------------
+  # FORM VALIDATION
+  # ---------------------------------------------------------------------------
+  form_validation: |
+    // Pattern for form input validation
+    const ContactFormSchema = z.object({
+      name: z.string()
+        .min(1, 'Name is required')
+        .max(100, 'Name too long'),
+      email: z.string()
+        .email('Invalid email address'),
+      message: z.string()
+        .min(10, 'Message must be at least 10 characters')
+        .max(1000, 'Message too long'),
+    });
+    
+    // Use with React form
+    function handleSubmit(formData: FormData) {
+      const result = ContactFormSchema.safeParse({
+        name: formData.get('name'),
+        email: formData.get('email'),
+        message: formData.get('message'),
+      });
+      
+      if (!result.success) {
+        // Convert to field-level errors
+        const errors: Record<string, string> = {};
+        result.error.issues.forEach(issue => {
+          const field = issue.path[0] as string;
+          errors[field] = issue.message;
+        });
+        return { errors };
+      }
+      
+      // result.data is safe to use
+      return sendEmail(result.data);
+    }
+    
+  # ---------------------------------------------------------------------------
+  # TRANSFORM & COERCE
+  # ---------------------------------------------------------------------------
+  transform: |
+    // Transform data during validation
+    const UserInputSchema = z.object({
+      // Coerce string to number (useful for form inputs)
+      age: z.coerce.number().int().positive(),
+      
+      // Transform string to Date
+      birthDate: z.string().transform(val => new Date(val)),
+      
+      // Trim whitespace
+      name: z.string().trim(),
+      
+      // Custom transform
+      email: z.string().email().transform(val => val.toLowerCase()),
+    });
+    
+  # ---------------------------------------------------------------------------
+  # NESTED & COMPLEX TYPES
+  # ---------------------------------------------------------------------------
+  complex_types: |
+    // Arrays
+    const TagsSchema = z.array(z.string()).min(1).max(10);
+    
+    // Nested objects
+    const AddressSchema = z.object({
+      street: z.string(),
+      city: z.string(),
+      country: z.string(),
+      zip: z.string().regex(/^\d{5}$/),
+    });
+    
+    const PersonSchema = z.object({
+      name: z.string(),
+      address: AddressSchema,
+      tags: TagsSchema,
+    });
+    
+    // Union types
+    const ResultSchema = z.union([
+      z.object({ status: z.literal('success'), data: z.any() }),
+      z.object({ status: z.literal('error'), message: z.string() }),
+    ]);
+    
+    // Discriminated union (more efficient)
+    const EventSchema = z.discriminatedUnion('type', [
+      z.object({ type: z.literal('click'), x: z.number(), y: z.number() }),
+      z.object({ type: z.literal('keypress'), key: z.string() }),
+    ]);
+
+# =============================================================================
+# INTEGRATION WITH NEXT.JS API ROUTES
+# =============================================================================
+nextjs_integration: |
+  // app/api/users/route.ts
+  import { NextRequest, NextResponse } from 'next/server';
+  import { z } from 'zod';
+  
+  const CreateUserSchema = z.object({
+    email: z.string().email(),
+    name: z.string().min(1),
+  });
+  
+  export async function POST(request: NextRequest) {
+    const body = await request.json();
+    
+    const result = CreateUserSchema.safeParse(body);
+    
+    if (!result.success) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'Invalid input',
+            details: result.error.issues,
+          },
+        },
+        { status: 400 }
+      );
+    }
+    
+    // result.data is typed as { email: string; name: string }
+    const user = await createUser(result.data);
+    
+    return NextResponse.json({ success: true, data: user });
+  }
+
+# =============================================================================
+# INTEGRATION WITH FASTAPI (Python Alternative)
+# =============================================================================
+fastapi_comparison: |
+  # In Python/FastAPI, Pydantic serves a similar purpose:
+  
+  from pydantic import BaseModel, EmailStr
+  
+  class CreateUserRequest(BaseModel):
+      email: EmailStr
+      name: str
+  
+  @app.post("/users")
+  async def create_user(request: CreateUserRequest):
+      # request is already validated
+      return {"email": request.email, "name": request.name}
+  
+  # GSS uses Zod for TypeScript and Pydantic for Python
+
+# =============================================================================
+# COMMON SCHEMAS (Copy to your project)
+# =============================================================================
+common_schemas: |
+  // src/lib/schemas.ts - Common reusable schemas
+  import { z } from 'zod';
+  
+  // Primitives
+  export const IdSchema = z.string().uuid();
+  export const EmailSchema = z.string().email();
+  export const UrlSchema = z.string().url();
+  export const DateTimeSchema = z.string().datetime();
+  
+  // Pagination
+  export const PaginationSchema = z.object({
+    page: z.coerce.number().int().positive().default(1),
+    limit: z.coerce.number().int().min(1).max(100).default(20),
+    sortBy: z.string().optional(),
+    sortOrder: z.enum(['asc', 'desc']).default('desc'),
+  });
+  
+  // API Response wrapper
+  export function createResponseSchema<T extends z.ZodTypeAny>(dataSchema: T) {
+    return z.object({
+      success: z.boolean(),
+      data: dataSchema.optional(),
+      error: z.object({
+        code: z.string(),
+        message: z.string(),
+      }).optional(),
+    });
+  }
+  
+  // Usage
+  const UserResponseSchema = createResponseSchema(UserSchema);
+
+# =============================================================================
+# WHEN TO USE ZOD vs PLAIN TYPESCRIPT
+# =============================================================================
+decision_guide:
+  use_zod:
+    - API responses from external services
+    - User input (forms, query params)
+    - Configuration files (JSON, YAML)
+    - Data from databases (if not using ORM with validation)
+    - Any data crossing trust boundaries
+    
+  skip_zod:
+    - Internal function parameters (TypeScript is enough)
+    - Data already validated upstream
+    - Performance-critical hot paths (Zod has overhead)
+    - Simple type checking (typeof, Array.isArray)
+
+# =============================================================================
+# TESTS
+# =============================================================================
+tests:
+  smoke:
+    - name: Zod imports correctly
+      command: |
+        node -e "const { z } = require('zod'); console.log(z.string().parse('test'));"
+      expected: "test"
+      
+  unit:
+    - name: Schema validates correctly
+      code: |
+        const schema = z.object({ name: z.string() });
+        expect(schema.safeParse({ name: 'John' }).success).toBe(true);
+        expect(schema.safeParse({ name: 123 }).success).toBe(false);
+
+# =============================================================================
+# IMPLEMENTATION INSTRUCTIONS
+# =============================================================================
+implementation_instructions: |
+  ## For AI Implementation Agents
+  
+  ### When to add Zod to a project:
+  1. Project has external API calls
+  2. Project has form inputs
+  3. User requested runtime validation
+  
+  ### How to add:
+  1. Add to package.json: "zod": "3.22.4"
+  2. Create src/lib/schemas.ts with common schemas
+  3. Use safeParse for all external data
+  
+  ### Pattern to follow:
+  ```typescript
+  // 1. Define schema
+  const Schema = z.object({...});
+  
+  // 2. Infer type
+  type SchemaType = z.infer<typeof Schema>;
+  
+  // 3. Validate external data
+  const result = Schema.safeParse(externalData);
+  if (!result.success) {
+    // handle error
+  }
+  // result.data is now type-safe
+  ```
+  
+  ### Don't:
+  - Use .parse() directly without try/catch
+  - Define schemas inline (extract to lib/schemas.ts)
+  - Validate internal function params (TypeScript is enough)
