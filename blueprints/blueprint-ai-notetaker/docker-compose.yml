@@ -1,0 +1,137 @@
+# =============================================================================
+# AI Meeting Notes & Action Items Extractor - Docker Compose
+# =============================================================================
+# Full stack: FastAPI backend, React frontend, PostgreSQL, Redis
+# Based on Genesis System SDK components
+# =============================================================================
+
+version: '3.8'
+
+services:
+  # ===========================================================================
+  # BACKEND API (FastAPI + AI Integration)
+  # ===========================================================================
+  api:
+    build:
+      context: ./services/backend
+      dockerfile: Dockerfile
+    container_name: meeting-notes-api
+    restart: unless-stopped
+    environment:
+      # AI/LLM Configuration
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-anthropic/claude-haiku-4.5}
+      
+      # Database
+      DATABASE_URL: ${DATABASE_URL}
+      
+      # Cache
+      REDIS_URL: ${REDIS_URL}
+      
+      # CORS
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-*}
+      
+      # Settings
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-30}
+      MAX_TRANSCRIPT_LENGTH: ${MAX_TRANSCRIPT_LENGTH:-50000}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - meeting-notes-network
+
+  # ===========================================================================
+  # FRONTEND (React + Vite)
+  # ===========================================================================
+  frontend:
+    build:
+      context: ./services/frontend
+      dockerfile: Dockerfile
+    container_name: meeting-notes-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - api
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:80/"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+    networks:
+      - meeting-notes-network
+
+  # ===========================================================================
+  # DATABASE (PostgreSQL)
+  # ===========================================================================
+  postgres:
+    image: postgres:16
+    container_name: meeting-notes-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-meetingnotesuser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-localdevpassword123}
+      POSTGRES_DB: ${POSTGRES_DB:-meetingnotesdb}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./config/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-meetingnotesuser}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - meeting-notes-network
+
+  # ===========================================================================
+  # CACHE (Redis)
+  # ===========================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: meeting-notes-redis
+    restart: unless-stopped
+    command: >
+      redis-server
+      --requirepass ${REDIS_PASSWORD:-localredis123}
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - meeting-notes-network
+
+# =============================================================================
+# VOLUMES (Persistent Data)
+# =============================================================================
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+# =============================================================================
+# NETWORKS
+# =============================================================================
+networks:
+  meeting-notes-network:
+    driver: bridge
