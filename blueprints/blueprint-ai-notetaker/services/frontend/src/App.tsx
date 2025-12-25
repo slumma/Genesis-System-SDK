@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { FileText, CheckCircle2, Users, Sparkles, Clock, Trash2, Calendar, AlertCircle } from 'lucide-react'
+import { FileText, CheckCircle2, Users, Sparkles, Clock, Trash2, Calendar, AlertCircle, ChevronDown, ChevronRight, X } from 'lucide-react'
 
 // =============================================================================
 // TYPES
@@ -56,6 +56,8 @@ function App() {
   const [error, setError] = useState<string | null>(null)
   const [view, setView] = useState<'input' | 'history'>('input')
   const [editingItem, setEditingItem] = useState<string | null>(null)
+  const [expandedMeetings, setExpandedMeetings] = useState<Set<string>>(new Set())
+  const [selectedParticipant, setSelectedParticipant] = useState<string | null>(null)
 
   // =============================================================================
   // HELPER FUNCTIONS
@@ -455,7 +457,23 @@ function App() {
         {/* History View */}
         {view === 'history' && (
           <div className="space-y-4">
-            <h2 className="text-2xl font-bold mb-6">Meeting History</h2>
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold">Meeting History</h2>
+              
+              {/* Participant Filter */}
+              {selectedParticipant && (
+                <div className="flex items-center gap-2 bg-purple-500 bg-opacity-20 px-3 py-1.5 rounded-lg border border-purple-500">
+                  <Users className="w-4 h-4 text-purple-400" />
+                  <span className="text-sm text-purple-300">Showing tasks for: {selectedParticipant}</span>
+                  <button
+                    onClick={() => setSelectedParticipant(null)}
+                    className="text-purple-400 hover:text-purple-300"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+            </div>
             
             {meetings.length === 0 ? (
               <div className="bg-slate-800 rounded-lg p-12 text-center border border-slate-700">
@@ -463,54 +481,121 @@ function App() {
                 <p className="text-slate-400">No meetings yet. Process your first transcript!</p>
               </div>
             ) : (
-              meetings.map((meeting) => (
-                <div key={meeting.id} className="bg-slate-800 rounded-lg p-6 border border-slate-700 space-y-4">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <h3 className="text-xl font-bold text-blue-400">{meeting.title}</h3>
-                      <p className="text-sm text-slate-400 mt-1">
-                        {new Date(meeting.created_at).toLocaleString()}
-                      </p>
+              meetings.map((meeting) => {
+                const isExpanded = expandedMeetings.has(meeting.id)
+                const filteredItems = selectedParticipant
+                  ? meeting.action_items.filter(item => item.assigned_to === selectedParticipant)
+                  : meeting.action_items
+                const hasFilteredItems = filteredItems.length > 0
+
+                return (
+                  <div key={meeting.id} className="bg-slate-800 rounded-lg border border-slate-700">
+                    {/* Meeting Header - Always Visible */}
+                    <div className="p-6 space-y-4">
+                      <div className="flex justify-between items-start">
+                        <button
+                          onClick={() => {
+                            const newExpanded = new Set(expandedMeetings)
+                            if (isExpanded) {
+                              newExpanded.delete(meeting.id)
+                            } else {
+                              newExpanded.add(meeting.id)
+                            }
+                            setExpandedMeetings(newExpanded)
+                          }}
+                          className="flex items-start gap-2 flex-1 text-left group"
+                        >
+                          {isExpanded ? (
+                            <ChevronDown className="w-5 h-5 text-slate-400 mt-1 flex-shrink-0" />
+                          ) : (
+                            <ChevronRight className="w-5 h-5 text-slate-400 mt-1 flex-shrink-0" />
+                          )}
+                          <div className="flex-1">
+                            <h3 className="text-xl font-bold text-blue-400 group-hover:text-blue-300 transition">
+                              {meeting.title}
+                            </h3>
+                            <p className="text-sm text-slate-400 mt-1">
+                              {new Date(meeting.created_at).toLocaleString()}
+                              {!isExpanded && meeting.action_items.length > 0 && (
+                                <span className="ml-2">
+                                  • {meeting.action_items.length} action item{meeting.action_items.length !== 1 ? 's' : ''}
+                                </span>
+                              )}
+                            </p>
+                          </div>
+                        </button>
+                        <button
+                          onClick={() => deleteMeeting(meeting.id)}
+                          className="text-red-400 hover:text-red-300 p-2 hover:bg-slate-700 rounded transition ml-2"
+                          title="Delete meeting"
+                        >
+                          <Trash2 className="w-5 h-5" />
+                        </button>
+                      </div>
+
+                      {/* Participants - Always Visible */}
+                      {meeting.participants.length > 0 && (
+                        <div className="flex flex-wrap gap-2">
+                          {meeting.participants.map((p) => (
+                            <button
+                              key={p.id}
+                              onClick={() => setSelectedParticipant(selectedParticipant === p.name ? null : p.name)}
+                              className={`text-xs px-2 py-1 rounded-full transition ${
+                                selectedParticipant === p.name
+                                  ? 'bg-purple-500 bg-opacity-30 text-purple-300 border border-purple-500'
+                                  : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                              }`}
+                            >
+                              {p.name}
+                              {selectedParticipant === p.name && (
+                                <span className="ml-1">✓</span>
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                    <button
-                      onClick={() => deleteMeeting(meeting.id)}
-                      className="text-red-400 hover:text-red-300 p-2 hover:bg-slate-700 rounded transition"
-                      title="Delete meeting"
-                    >
-                      <Trash2 className="w-5 h-5" />
-                    </button>
+
+                    {/* Expandable Content */}
+                    {isExpanded && (
+                      <div className="px-6 pb-6 space-y-4 border-t border-slate-700 pt-4">
+                        {meeting.summary && (
+                          <p className="text-slate-300">{meeting.summary}</p>
+                        )}
+
+                        {meeting.action_items.length > 0 && (
+                          <div>
+                            <h4 className="font-semibold mb-3 text-sm text-slate-400">
+                              Action Items
+                              {selectedParticipant && (
+                                <span className="ml-2 text-purple-400">
+                                  ({filteredItems.length} for {selectedParticipant})
+                                </span>
+                              )}
+                              :
+                            </h4>
+                            {hasFilteredItems ? (
+                              <ul className="space-y-3">
+                                {filteredItems.map((item) => (
+                                  <ActionItemCard 
+                                    key={item.id} 
+                                    item={item} 
+                                    participants={meeting.participants}
+                                  />
+                                ))}
+                              </ul>
+                            ) : (
+                              <p className="text-sm text-slate-500 italic">
+                                No action items for {selectedParticipant}
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
-
-                  {meeting.summary && (
-                    <p className="text-slate-300">{meeting.summary}</p>
-                  )}
-
-                  {meeting.action_items.length > 0 && (
-                    <div>
-                      <h4 className="font-semibold mb-3 text-sm text-slate-400">Action Items:</h4>
-                      <ul className="space-y-3">
-                        {meeting.action_items.map((item) => (
-                          <ActionItemCard 
-                            key={item.id} 
-                            item={item} 
-                            participants={meeting.participants}
-                          />
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  {meeting.participants.length > 0 && (
-                    <div className="flex flex-wrap gap-2 pt-2">
-                      {meeting.participants.map((p) => (
-                        <span key={p.id} className="text-xs bg-slate-700 px-2 py-1 rounded-full text-slate-300">
-                          {p.name}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))
+                )
+              })
             )}
           </div>
         )}
