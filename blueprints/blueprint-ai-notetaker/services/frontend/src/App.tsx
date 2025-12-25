@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { FileText, CheckCircle2, Users, Sparkles, Clock, Trash2 } from 'lucide-react'
+import { FileText, CheckCircle2, Users, Sparkles, Clock, Trash2, Calendar, AlertCircle } from 'lucide-react'
 
 // =============================================================================
 // TYPES
@@ -14,14 +14,35 @@ interface ProcessedMeeting {
   decisions: string[]
 }
 
+interface ActionItem {
+  id: string
+  description: string
+  status: string
+  priority: string
+  due_date: string | null
+  assigned_to: string | null
+}
+
+interface Participant {
+  id: string
+  name: string
+}
+
 interface Meeting {
   id: string
   title: string
   summary: string
   key_points: string[]
-  action_items: { id: string; description: string; status: string }[]
-  participants: { id: string; name: string }[]
+  action_items: ActionItem[]
+  participants: Participant[]
   created_at: string
+}
+
+// Priority configuration
+const PRIORITIES = {
+  high: { label: 'High', color: 'bg-red-500', textColor: 'text-red-400', icon: '🔴' },
+  medium: { label: 'Medium', color: 'bg-yellow-500', textColor: 'text-yellow-400', icon: '🟡' },
+  low: { label: 'Low', color: 'bg-green-500', textColor: 'text-green-400', icon: '🟢' },
 }
 
 function App() {
@@ -34,6 +55,31 @@ function App() {
   const [meetings, setMeetings] = useState<Meeting[]>([])
   const [error, setError] = useState<string | null>(null)
   const [view, setView] = useState<'input' | 'history'>('input')
+  const [editingItem, setEditingItem] = useState<string | null>(null)
+
+  // =============================================================================
+  // HELPER FUNCTIONS
+  // =============================================================================
+  const formatDueDate = (dueDate: string | null): string => {
+    if (!dueDate) return ''
+    
+    const date = new Date(dueDate)
+    const now = new Date()
+    const diffTime = date.getTime() - now.getTime()
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+    
+    if (diffDays < 0) return `Overdue by ${Math.abs(diffDays)} day${Math.abs(diffDays) !== 1 ? 's' : ''}`
+    if (diffDays === 0) return 'Due today'
+    if (diffDays === 1) return 'Due tomorrow'
+    if (diffDays <= 7) return `Due in ${diffDays} days`
+    
+    return `Due ${date.toLocaleDateString()}`
+  }
+
+  const isOverdue = (dueDate: string | null): boolean => {
+    if (!dueDate) return false
+    return new Date(dueDate) < new Date()
+  }
 
   // =============================================================================
   // API CALLS
@@ -98,29 +144,147 @@ function App() {
     }
   }
 
-  const toggleActionItem = async (itemId: string, currentStatus: string) => {
-    const newStatus = currentStatus === 'pending' ? 'completed' : 'pending'
-    
+  const updateActionItem = async (
+    itemId: string,
+    updates: { status?: string; priority?: string; due_date?: string | null; assigned_to?: string | null }
+  ) => {
     try {
       const response = await fetch(`/api/action-items/${itemId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: newStatus }),
+        body: JSON.stringify(updates),
       })
       
       if (!response.ok) throw new Error('Failed to update action item')
       
-      // Refresh meetings to show updated status
+      // Refresh meetings to show updated data
       fetchMeetings()
     } catch (err) {
       console.error('Error updating action item:', err)
+      setError(err instanceof Error ? err.message : 'Failed to update')
     }
+  }
+
+  const toggleActionItem = async (itemId: string, currentStatus: string) => {
+    const newStatus = currentStatus === 'pending' ? 'completed' : 'pending'
+    await updateActionItem(itemId, { status: newStatus })
   }
 
   // Load meetings on component mount
   useEffect(() => {
     fetchMeetings()
   }, [])
+
+  // =============================================================================
+  // ACTION ITEM COMPONENT
+  // =============================================================================
+  const ActionItemCard = ({ item, participants }: { item: ActionItem; participants: Participant[] }) => {
+    const isEditing = editingItem === item.id
+    const priorityConfig = PRIORITIES[item.priority as keyof typeof PRIORITIES] || PRIORITIES.medium
+    const overdue = isOverdue(item.due_date)
+
+    return (
+      <li className={`bg-slate-900 rounded-lg p-4 space-y-3 border ${
+        overdue && item.status !== 'completed' ? 'border-red-500' : 'border-slate-700'
+      }`}>
+        {/* Top Row: Checkbox and Description */}
+        <div className="flex items-start gap-3">
+          <button
+            onClick={() => toggleActionItem(item.id, item.status)}
+            className="mt-0.5 flex-shrink-0"
+          >
+            {item.status === 'completed' ? (
+              <CheckCircle2 className="w-5 h-5 text-green-400" />
+            ) : (
+              <div className="w-5 h-5 rounded-full border-2 border-slate-600 hover:border-slate-400 transition" />
+            )}
+          </button>
+          <span className={`flex-1 ${item.status === 'completed' ? 'text-slate-500 line-through' : 'text-slate-200'}`}>
+            {item.description}
+          </span>
+          <button
+            onClick={() => setEditingItem(isEditing ? null : item.id)}
+            className="text-xs text-blue-400 hover:text-blue-300 px-2 py-1 hover:bg-slate-800 rounded"
+          >
+            {isEditing ? 'Done' : 'Edit'}
+          </button>
+        </div>
+
+        {/* Second Row: Priority, Due Date, Assignee */}
+        {isEditing ? (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pl-8">
+            {/* Priority Selector */}
+            <div>
+              <label className="block text-xs text-slate-400 mb-1">Priority</label>
+              <select
+                value={item.priority}
+                onChange={(e) => updateActionItem(item.id, { priority: e.target.value })}
+                className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="low">🟢 Low</option>
+                <option value="medium">🟡 Medium</option>
+                <option value="high">🔴 High</option>
+              </select>
+            </div>
+
+            {/* Due Date Picker */}
+            <div>
+              <label className="block text-xs text-slate-400 mb-1">Due Date</label>
+              <input
+                type="date"
+                value={item.due_date ? new Date(item.due_date).toISOString().split('T')[0] : ''}
+                onChange={(e) => updateActionItem(item.id, { 
+                  due_date: e.target.value ? new Date(e.target.value).toISOString() : null 
+                })}
+                className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+
+            {/* Assignee Selector */}
+            <div>
+              <label className="block text-xs text-slate-400 mb-1">Assigned To</label>
+              <select
+                value={item.assigned_to || ''}
+                onChange={(e) => updateActionItem(item.id, { assigned_to: e.target.value || null })}
+                className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">Unassigned</option>
+                {participants.map((p) => (
+                  <option key={p.id} value={p.name}>{p.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-wrap items-center gap-3 pl-8 text-sm">
+            {/* Priority Badge */}
+            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${priorityConfig.color} bg-opacity-20 ${priorityConfig.textColor}`}>
+              {priorityConfig.icon} {priorityConfig.label}
+            </span>
+
+            {/* Due Date */}
+            {item.due_date && (
+              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs ${
+                overdue ? 'bg-red-500 bg-opacity-20 text-red-400' : 'bg-blue-500 bg-opacity-20 text-blue-400'
+              }`}>
+                <Calendar className="w-3 h-3" />
+                {formatDueDate(item.due_date)}
+                {overdue && <AlertCircle className="w-3 h-3" />}
+              </span>
+            )}
+
+            {/* Assignee */}
+            {item.assigned_to && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-purple-500 bg-opacity-20 text-purple-400">
+                <Users className="w-3 h-3" />
+                {item.assigned_to}
+              </span>
+            )}
+          </div>
+        )}
+      </li>
+    )
+  }
 
   // =============================================================================
   // RENDER
@@ -323,24 +487,14 @@ function App() {
 
                   {meeting.action_items.length > 0 && (
                     <div>
-                      <h4 className="font-semibold mb-2 text-sm text-slate-400">Action Items:</h4>
-                      <ul className="space-y-2">
+                      <h4 className="font-semibold mb-3 text-sm text-slate-400">Action Items:</h4>
+                      <ul className="space-y-3">
                         {meeting.action_items.map((item) => (
-                          <li key={item.id} className="flex items-start gap-2">
-                            <button
-                              onClick={() => toggleActionItem(item.id, item.status)}
-                              className="mt-0.5"
-                            >
-                              {item.status === 'completed' ? (
-                                <CheckCircle2 className="w-5 h-5 text-green-400" />
-                              ) : (
-                                <div className="w-5 h-5 rounded-full border-2 border-slate-600" />
-                              )}
-                            </button>
-                            <span className={item.status === 'completed' ? 'text-slate-500 line-through' : 'text-slate-300'}>
-                              {item.description}
-                            </span>
-                          </li>
+                          <ActionItemCard 
+                            key={item.id} 
+                            item={item} 
+                            participants={meeting.participants}
+                          />
                         ))}
                       </ul>
                     </div>

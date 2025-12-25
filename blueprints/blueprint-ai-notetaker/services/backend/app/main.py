@@ -60,7 +60,8 @@ class ActionItem(Base):
     description = Column(Text, nullable=False)
     assigned_to = Column(String(255))
     status = Column(String(50), default="pending")
-    priority = Column(String(50), default="normal")
+    priority = Column(String(50), default="medium")
+    due_date = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     meeting = relationship("Meeting", back_populates="action_items")
@@ -89,6 +90,7 @@ class ActionItemResponse(BaseModel):
     assigned_to: Optional[str]
     status: str
     priority: str
+    due_date: Optional[datetime]
     
     class Config:
         from_attributes = True
@@ -126,6 +128,8 @@ class ProcessedMeetingResponse(BaseModel):
 class ActionItemUpdate(BaseModel):
     status: Optional[str] = None
     assigned_to: Optional[str] = None
+    priority: Optional[str] = None
+    due_date: Optional[datetime] = None
 
 # =============================================================================
 # FASTAPI APP
@@ -380,7 +384,7 @@ async def delete_meeting(meeting_id: UUID):
 
 @app.patch("/api/action-items/{action_item_id}", response_model=ActionItemResponse)
 async def update_action_item(action_item_id: UUID, update: ActionItemUpdate):
-    """Update an action item (e.g., mark as complete)"""
+    """Update an action item (e.g., mark as complete, set due date, priority)"""
     
     db = SessionLocal()
     try:
@@ -395,6 +399,10 @@ async def update_action_item(action_item_id: UUID, update: ActionItemUpdate):
             action_item.status = update.status
         if update.assigned_to is not None:
             action_item.assigned_to = update.assigned_to
+        if update.priority is not None:
+            action_item.priority = update.priority
+        if update.due_date is not None:
+            action_item.due_date = update.due_date
         
         db.commit()
         db.refresh(action_item)
