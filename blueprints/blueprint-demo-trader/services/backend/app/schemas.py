@@ -66,6 +66,9 @@ class TradeResponse(BaseModel):
     
     class Config:
         from_attributes = True
+        json_encoders = {
+            Decimal: lambda v: float(v) if v is not None else None
+        }
 
 
 # =============================================================================
@@ -90,6 +93,11 @@ class PortfolioResponse(BaseModel):
     holdings: List[PortfolioHolding]
     daily_change: Optional[Decimal] = None
     daily_change_percent: Optional[Decimal] = None
+    
+    class Config:
+        json_encoders = {
+            Decimal: lambda v: float(v) if v is not None else None
+        }
 
 
 class PortfolioSnapshotResponse(BaseModel):

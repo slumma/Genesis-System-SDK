@@ -66,6 +66,8 @@ function App() {
   const [currentPrice, setCurrentPrice] = useState<number | null>(null)
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
+  const [stopLoss, setStopLoss] = useState<number | undefined>(undefined)
+  const [takeProfit, setTakeProfit] = useState<number | undefined>(undefined)
 
   // Fetch portfolio
   const fetchPortfolio = async () => {
@@ -233,6 +235,34 @@ function App() {
     return () => clearInterval(interval)
   }, [])
 
+  // Calculate P/L for a specific time period (in days)
+  const calculatePeriodPL = (tradesList: Trade[], days: number): number => {
+    const cutoffDate = new Date()
+    cutoffDate.setDate(cutoffDate.getDate() - days)
+    
+    let totalPL = 0
+    
+    // Filter trades within the period
+    const periodTrades = tradesList.filter(trade => 
+      new Date(trade.executed_at) >= cutoffDate
+    )
+    
+    // Calculate simple P/L based on buy/sell differences
+    periodTrades.forEach(trade => {
+      const price = Number(trade.price) || 0
+      const quantity = Number(trade.quantity) || 0
+      const totalValue = price * quantity
+      
+      if (trade.action === 'sell') {
+        totalPL += totalValue
+      } else {
+        totalPL -= totalValue
+      }
+    })
+    
+    return totalPL
+  }
+
   return (
     <div className="min-h-screen bg-slate-900 text-white">
       {/* Header */}
@@ -394,7 +424,15 @@ function App() {
                     
                     {/* Price Chart */}
                     <div className="mb-4 p-4 bg-slate-700/50 rounded">
-                      <PriceChart symbol={selectedSymbol} assetType={selectedAssetType} />
+                      <PriceChart 
+                        symbol={selectedSymbol} 
+                        assetType={selectedAssetType}
+                        onPriceUpdate={setCurrentPrice}
+                        stopLoss={stopLoss}
+                        takeProfit={takeProfit}
+                        onSetStopLoss={setStopLoss}
+                        onSetTakeProfit={setTakeProfit}
+                      />
                     </div>
                   </>
                 )}
@@ -534,7 +572,7 @@ function App() {
         ) : (
           /* Performance Tab */
           <div className="flex-1 overflow-y-auto p-6 space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="bg-slate-800 rounded-lg p-6">
                 <div className="text-slate-400 text-sm mb-2">Total Value</div>
                 <div className="text-3xl font-bold">${portfolio?.total_value?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}</div>
@@ -554,6 +592,38 @@ function App() {
               <div className="bg-slate-800 rounded-lg p-6">
                 <div className="text-slate-400 text-sm mb-2">Holdings Value</div>
                 <div className="text-3xl font-bold">${portfolio?.holdings_value?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}</div>
+              </div>
+              
+              <div className="bg-slate-800 rounded-lg p-6">
+                <div className="text-slate-400 text-sm mb-2">Realized P/L</div>
+                <div className={`text-3xl font-bold ${(portfolio?.holdings.reduce((sum, h) => sum + (Number(h.profit_loss) || 0), 0) || 0) >= 0 ? 'text-profit' : 'text-loss'}`}>
+                  ${(portfolio?.holdings.reduce((sum, h) => sum + (Number(h.profit_loss) || 0), 0) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+              </div>
+            </div>
+
+            {/* Earnings Breakdown */}
+            <div className="bg-slate-800 rounded-lg p-6">
+              <h2 className="text-lg font-semibold mb-4">Earnings Breakdown</h2>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="bg-slate-700/50 rounded p-4">
+                  <div className="text-slate-400 text-sm mb-1">Today</div>
+                  <div className={`text-2xl font-bold ${calculatePeriodPL(trades, 1) >= 0 ? 'text-profit' : 'text-loss'}`}>
+                    {calculatePeriodPL(trades, 1) >= 0 ? '+' : ''}${calculatePeriodPL(trades, 1).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                </div>
+                <div className="bg-slate-700/50 rounded p-4">
+                  <div className="text-slate-400 text-sm mb-1">This Week</div>
+                  <div className={`text-2xl font-bold ${calculatePeriodPL(trades, 7) >= 0 ? 'text-profit' : 'text-loss'}`}>
+                    {calculatePeriodPL(trades, 7) >= 0 ? '+' : ''}${calculatePeriodPL(trades, 7).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                </div>
+                <div className="bg-slate-700/50 rounded p-4">
+                  <div className="text-slate-400 text-sm mb-1">This Month</div>
+                  <div className={`text-2xl font-bold ${calculatePeriodPL(trades, 30) >= 0 ? 'text-profit' : 'text-loss'}`}>
+                    {calculatePeriodPL(trades, 30) >= 0 ? '+' : ''}${calculatePeriodPL(trades, 30).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                </div>
               </div>
             </div>
 
